@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "voice_dbs",
+  "project_id": "d7e4eaa9-87c5-48f8-9fea-61e96cf7e1a8"
+}

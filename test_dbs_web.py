@@ -1,6 +1,7 @@
 """Offline transport/privacy/state tests; provider calls are explicitly mocked."""
 import asyncio
 import json
+import os
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -14,6 +15,9 @@ from dbs_web import DemoSession, create_app
 
 class SessionTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        env = patch.dict(os.environ, {'DBS_FACILITATION_MODE': 'rules'})
+        env.start()
+        self.addCleanup(env.stop)
         self.ws = Mock(closed=False, send_json=AsyncMock(), send_bytes=AsyncMock())
         self.session = DemoSession(self.ws, 'en')
         self.session.stream = Mock()
@@ -142,15 +146,25 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
                 await self.client.ws_connect('/ws', headers=headers)
             self.assertEqual(error.exception.status, 403)
 
-    async def test_consent_is_required_before_any_provider_start(self):
+    async def test_invalid_language_is_rejected_before_any_provider_start(self):
         with patch('dbs_web.DemoSession') as session:
             async with self.client.ws_connect('/ws', headers={'Origin': self.origin}) as ws:
                 self.assertEqual((await ws.receive_json())['type'], 'hello')
-                await ws.send_json({'type': 'start', 'language': 'en', 'consent': False})
+                await ws.send_json({'type': 'start', 'language': 'invalid'})
                 event = await ws.receive_json()
                 self.assertEqual(event['code'], 'invalid_start')
                 self.assertTrue(event['fatal'])
             session.assert_not_called()
+
+    async def test_start_has_no_in_app_consent_gate(self):
+        started = asyncio.Event()
+        fake = Mock(closed=asyncio.Event(), run=AsyncMock(side_effect=started.set))
+        with patch('dbs_web.DemoSession', return_value=fake) as session:
+            async with self.client.ws_connect('/ws', headers={'Origin': self.origin}) as ws:
+                await ws.receive_json()
+                await ws.send_json({'type': 'start', 'language': 'en'})
+                await asyncio.wait_for(started.wait(), 1)
+                session.assert_called_once()
 
     async def test_browser_bad_json_closes_without_starting_provider(self):
         with patch('dbs_web.DemoSession') as session:

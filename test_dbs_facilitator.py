@@ -20,8 +20,15 @@ import httpx
 
 from dbs_curriculum import Lesson
 from dbs_facilitator import (
-    ACTIONS, DEFAULT_MODEL, INSTRUCTIONS, OPENROUTER_URL, SCHEMA,
-    Decision, Facilitator, FacilitatorConfigurationError, FacilitatorError,
+    ACTIONS,
+    DEFAULT_MODEL,
+    INSTRUCTIONS,
+    OPENROUTER_URL,
+    SCHEMA,
+    Decision,
+    Facilitator,
+    FacilitatorConfigurationError,
+    FacilitatorError,
     openrouter_api_key,
 )
 
@@ -156,6 +163,20 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
     def payload(self):
         return json.loads(self.requests[-1].content)
 
+    async def test_explicit_lifecycle_events_are_not_participant_commands(self):
+        self.output("respond", speech="Welcome. What are you thankful for?")
+        for event in ("opening", "idle"):
+            await self.brain.decide("", context(), event=event)
+            data = json.loads(self.payload()["messages"][1]["content"])
+            self.assertEqual(data["event"], event)
+            self.assertEqual(data["text"], "")
+        requests = len(self.requests)
+        with self.assertRaises(FacilitatorError):
+            await self.brain.decide("next", context(), event="opening")
+        with self.assertRaises(FacilitatorError):
+            await self.brain.decide("", context(), event="invented")
+        self.assertEqual(len(self.requests), requests)
+
     async def test_public_defaults_and_explicit_model(self):
         self.assertEqual(self.brain.provider, "openrouter")
         self.assertEqual(self.brain.model, DEFAULT_MODEL)
@@ -267,7 +288,7 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("vulnerable disclosures", INSTRUCTIONS)
 
     async def test_missing_or_invented_grounding_suppresses_all_speech(self):
-        base = dict(name="Ana", verse_id="GEN.1.1", quote="the story describes light", speech="Ana, where did you hear that in the story?")
+        base = {"name": "Ana", "verse_id": "GEN.1.1", "quote": "the story describes light", "speech": "Ana, where did you hear that in the story?"}
         for changes in ({"quote": "invented text"}, {"quote": ""}, {"quote": " "},
                         {"verse_id": "GEN.99.1"}, {"quote": "the story describes water"},
                         {"quote": "The story describes light"}, {"name": "Ben"},

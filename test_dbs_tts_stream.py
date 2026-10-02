@@ -1,8 +1,8 @@
 """Offline incremental streaming tests; PCM and credentials are test fixtures."""
 import asyncio
-from contextlib import aclosing, contextmanager
 import json
 import unittest
+from contextlib import aclosing, contextmanager
 from unittest.mock import patch
 
 import httpx
@@ -116,13 +116,15 @@ class PCMStreamingTests(unittest.IsolatedAsyncioTestCase):
             ([b'\x01\x02'], 200, '', 'Unexpected ElevenLabs audio type'),
         ]
         for chunks, status, content_type, message in cases:
-            with self.subTest(status=status, content_type=content_type, chunks=chunks):
-                with self.provider(chunks, status=status, content_type=content_type) as (source, response, client, _):
-                    with self.assertRaisesRegex(RuntimeError, message):
-                        await anext(dbs_tts.stream_pcm('Hello.', 'en'))
-                    if status != 200 or not content_type.startswith('audio/'):
-                        self.assertEqual(source.reads, 0)
-                    self.assert_closed(source, response, client)
+            with (
+                self.subTest(status=status, content_type=content_type, chunks=chunks),
+                self.provider(chunks, status=status, content_type=content_type) as (source, response, client, _),
+            ):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    await anext(dbs_tts.stream_pcm('Hello.', 'en'))
+                if status != 200 or not content_type.startswith('audio/'):
+                    self.assertEqual(source.reads, 0)
+                self.assert_closed(source, response, client)
 
     async def test_cancellation_while_reading_closes_response_and_client(self):
         with self.provider([b'\x01\x02', b'\x03\x04'], gate_after=1) as (source, response, client, _):
@@ -177,11 +179,13 @@ class PCMStreamingTests(unittest.IsolatedAsyncioTestCase):
     async def test_validation_happens_before_http_client_creation(self):
         cases = [('Hello.', 'sw', ''), ('Hello.', 'en', '../voice'), ('   ', 'en', '')]
         for text, language, voice in cases:
-            with self.subTest(text=text, language=language, voice=voice):
-                with patch('dbs_tts.httpx.AsyncClient') as client:
-                    with self.assertRaises(ValueError):
-                        await anext(dbs_tts.stream_pcm(text, language, voice=voice))
-                    client.assert_not_called()
+            with (
+                self.subTest(text=text, language=language, voice=voice),
+                patch('dbs_tts.httpx.AsyncClient') as client,
+            ):
+                with self.assertRaises(ValueError):
+                    await anext(dbs_tts.stream_pcm(text, language, voice=voice))
+                client.assert_not_called()
         with patch('dbs_tts.api_key', side_effect=ValueError('missing key')), patch('dbs_tts.httpx.AsyncClient') as client:
             with self.assertRaisesRegex(ValueError, 'missing key'):
                 await anext(dbs_tts.stream_pcm('Hello.', 'en'))

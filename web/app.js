@@ -485,9 +485,8 @@
         $('stat-input').textContent = `${seconds(event.input_seconds)} · ${number(event.received_bytes) === null ? '—' : `${(event.received_bytes / 1024).toFixed(0)} KB`}`;
         $('stat-queue').textContent = String(number(event.queue_depth) ?? '—'); break;
       case 'audio':
-        if (runtime.audio || runtime.playback.size) { showError('Unexpected overlapping audio. Session released.'); release('Audio protocol error.'); break; }
-        if (typeof event.id !== 'string' || !event.id) { showError('Missing audio acknowledgement ID. Session released.'); release('Audio protocol error.'); break; }
-        runtime.audio = event; break;
+        // Buffered server prompts use the same validated playback lifecycle.
+        beginOutput(event, true); break;
       case 'cancel_audio': cancelPlayback(); log('Playback cancelled; no completion acknowledgement sent.', '', event.at); break;
       case 'error':
         showError(`${text(event.code, 80) || 'Server error'}: ${text(event.message, 1200)}`);

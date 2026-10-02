@@ -133,6 +133,17 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.headers['X-Frame-Options'], 'DENY')
         self.assertIn("frame-ancestors 'none'", result.headers['Content-Security-Policy'])
 
+    async def test_csp_allows_the_embedded_local_fonts(self):
+        response = await self.client.get('/dbs/styles.css')
+        self.assertIn('data:font/woff2', await response.text())
+        directives = {parts[0]: set(parts[1:])
+                      for rule in response.headers['Content-Security-Policy'].split(';')
+                      if (parts := rule.strip().split())}
+        fonts = directives.get('font-src', directives['default-src'])
+        self.assertIn('data:', fonts)
+        self.assertIn("'self'", fonts)
+        self.assertNotIn('https://fonts.googleapis.com', directives['style-src'])
+
     async def test_no_directory_or_credential_exposure(self):
         for path in ('/.env', '/dbs/.env', '/dbs/dbs_agent.py', '/.speaker_profiles.json', '/requirements.txt'):
             response = await self.client.get(path)

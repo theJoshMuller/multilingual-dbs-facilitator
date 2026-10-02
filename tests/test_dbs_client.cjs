@@ -35,10 +35,10 @@ function client() {
     addEventListener() {},
   };
   const window = { addEventListener() {} };
-  const context = vm.createContext({ document, window, performance, WebSocket: { OPEN: 1 } });
+  const context = vm.createContext({ document, window, performance, clearTimeout, clearInterval, WebSocket: { OPEN: 1 } });
   const source = fs.readFileSync(path.join(root, 'web/app.js'), 'utf8');
   assert.ok(source.endsWith('})();\n'));
-  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'window.fixture = { runtime, handleEvent }; })();'), context);
+  vm.runInContext(source.replace(/\}\)\(\);\s*$/, 'window.fixture = { runtime, handleEvent, playPCM }; })();'), context);
   const fixture = window.fixture;
   fixture.runtime.active = true;
   fixture.runtime.socket = { readyState: 1 };
@@ -79,4 +79,30 @@ test('sessions without study metadata retain their own facilitator diagnostics',
     current_question: 'Recognition proof', question_key: 'ASR ONLY', roster: [] });
   assert.match(elements.get('model-label').textContent, /ASR|UNVERIFIED/);
   assert.equal(elements.get('question-key').textContent, 'ASR ONLY');
+});
+
+test('buffered opening audio keeps the session active and acknowledges completed playback once', () => {
+  const { handleEvent, playPCM, runtime } = client();
+  const sent = [];
+  const sources = [];
+  runtime.socket.send = (payload) => sent.push(JSON.parse(payload));
+  runtime.context = {
+    state: 'running', currentTime: 0, destination: {}, close: () => Promise.resolve(),
+    createBuffer: (_channels, samples, rate) => ({
+      duration: samples / rate, getChannelData: () => new Float32Array(samples),
+    }),
+    createBufferSource: () => ({ connect() {}, disconnect() {}, stop() {},
+      start() { sources.push(this); },
+    }),
+  };
+  handleEvent({ type: 'audio', id: 'offline-opening', samples: 320,
+    sample_rate: 16000, format: 'pcm_s16le', channels: 1 });
+  playPCM(new ArrayBuffer(640), runtime.generation);
+  assert.equal(runtime.active, true, 'Valid opening audio must not end the session');
+  assert.equal(sources.length, 1);
+  assert.equal(sent.length, 0, 'Do not acknowledge merely receiving audio');
+  sources[0].onended();
+  assert.deepEqual(sent, [{ type: 'played', id: 'offline-opening' }]);
+  sources[0].onended();
+  assert.equal(sent.length, 1);
 });

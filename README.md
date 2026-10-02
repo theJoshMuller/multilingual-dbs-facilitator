@@ -160,13 +160,22 @@ recognition configuration; it is not a mixed-language feature.
 | `STT_LANGUAGE` / `STT_DOMAIN` | CLI recognition language and optional domain |
 | `WAHA_ROOT` / `SCRIPTURE_FILE` | Canonical curriculum and authorized passage |
 | `DBS_MAX_PEOPLE` / `DBS_MAX_SPEAKERS` | Participant and recognition ceilings; defaults 7 / 10 |
-| `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_ID_ES` | Override Eric globally or for Spanish |
+| `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_ID_ES` | Override the default Mark voice globally or for Spanish |
 | `ELEVENLABS_ENV_FILE` / `ELEVEN_API_KEY` | Alternative ElevenLabs credential sources |
 | `DBS_WEB_PORT` / `DBS_WEB_ORIGINS` | Port (default 8094) and exact allowed origins |
 
 Speechmatics supplies transcripts, speaker labels, and opaque identity evidence.
-ElevenLabs reads generated text unchanged and canonical text from the server,
-using `eleven_flash_v2_5` and 16 kHz PCM. There is no silent eSpeak fallback.
+ElevenLabs reads generated text unchanged and canonical text from the server.
+
+Speech synthesis defaults to `eleven_v4_turbo` and Mark — Natural Conversations
+(`UgBBYS2sOqTuMpoF3BR0`) using HTTP Text-to-Dialogue streaming and 16 kHz PCM.
+Long text is sent in source-preserving requests of at most 2,000 characters;
+there is no alternate-model fallback. Only `DBS_TTS_PROVIDER=elevenlabs` is
+supported. The console validates each prompt's complete audio before playback;
+first-byte timing is not time to audible response. Josh approved real paired
+English/Spanish/Turkish output samples; that is not a human-group ASR or
+end-to-end study validation. Retained Flash language reports describe the earlier
+baseline, not the current default or a newly qualified support list.
 
 | File | Responsibility |
 | --- | --- |

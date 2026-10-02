@@ -85,7 +85,7 @@ class PCMStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreaterEqual(metrics['synthesis_seconds'], metrics['first_audio_seconds'])
             request = requests[0]
             self.assertEqual(request.url.params['output_format'], 'pcm_16000')
-            self.assertEqual(json.loads(request.content)['model_id'], 'eleven_flash_v2_5')
+            self.assertEqual(json.loads(request.content)['model_id'], 'eleven_v4_turbo')
 
     async def test_odd_network_splits_empty_chunks_and_large_chunks_are_lossless(self):
         chunks = [b'', b'\x01', b'', b'\x02\x03', b'\x04', bytes(range(256)) * 60, b'\x05\x06']
@@ -177,7 +177,7 @@ class PCMStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assert_closed(source, response, client)
 
     async def test_validation_happens_before_http_client_creation(self):
-        cases = [('Hello.', 'sw', ''), ('Hello.', 'en', '../voice'), ('   ', 'en', '')]
+        cases = [('Hello.', 'xx', ''), ('Hello.', 'en', '../voice'), ('   ', 'en', ''), ('\n' * 2001, 'en', '')]
         for text, language, voice in cases:
             with (
                 self.subTest(text=text, language=language, voice=voice),
@@ -190,6 +190,113 @@ class PCMStreamingTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(ValueError, 'missing key'):
                 await anext(dbs_tts.stream_pcm('Hello.', 'en'))
             client.assert_not_called()
+
+    async def test_long_reading_requests_are_bounded_and_preserve_exact_text(self):
+        text = ('İçerik — ¿quién? First sentence.\nSecond sentence.  ' * 110) + 'x' * 2100
+        requests, responses = [], []
+        pcm = b'\x01\x02' * 320
+
+        def handler(request):
+            requests.append(request)
+            response = httpx.Response(200, content=pcm, headers={'content-type': 'audio/pcm'})
+            responses.append(response)
+            return response
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        metrics = {}
+        with patch('dbs_tts.api_key', return_value='unit-test-only'), patch('dbs_tts.httpx.AsyncClient', return_value=client):
+            frames = await dbs_tts.synthesize(text, 'tr', metrics=metrics)
+        pieces = [json.loads(request.content)['inputs'][0]['text'] for request in requests]
+        self.assertGreater(len(pieces), 1)
+        self.assertTrue(all(0 < len(piece) <= 2000 for piece in pieces))
+        self.assertEqual(''.join(pieces), text)
+        self.assertEqual(b''.join(bytes(frame.data) for frame in frames), pcm * len(pieces))
+        self.assertTrue(client.is_closed and all(response.is_closed for response in responses))
+        self.assertEqual(metrics['audio_seconds'], round(len(pcm) * len(pieces) / 32000, 3))
+
+    async def test_whitespace_only_chunks_do_not_abort_valid_speech(self):
+        texts = [
+            ('Hello, everyone. ' * 300)[:1999] + ' \n',
+            '\n' * 2000 + 'Hello.',
+            'Hello. ' + '\n' * 4000 + ' Goodbye.',
+        ]
+        for text in texts:
+            with self.subTest(text=text):
+                pieces = list(dbs_tts._request_texts(text))
+                self.assertEqual(''.join(pieces), text)
+                requests, responses = [], []
+                pcm = b'\x01\x02' * 320
+
+                def handler(request, requests=requests, responses=responses, pcm=pcm):
+                    requests.append(json.loads(request.content)['inputs'][0]['text'])
+                    response = httpx.Response(200, content=pcm, headers={'content-type': 'audio/pcm'})
+                    responses.append(response)
+                    return response
+
+                client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+                metrics = {}
+                with patch('dbs_tts.api_key', return_value='unit-test-only'), patch('dbs_tts.httpx.AsyncClient', return_value=client):
+                    frames = await dbs_tts.synthesize(text, 'en', metrics=metrics)
+                self.assertEqual(requests, [piece for piece in pieces if piece.strip()])
+                self.assertTrue(all(0 < len(piece) <= 2000 for piece in requests))
+                self.assertEqual(b''.join(bytes(frame.data) for frame in frames), pcm * len(requests))
+                self.assertEqual(metrics['audio_seconds'], round(len(pcm) * len(requests) / 32000, 3))
+                self.assertTrue(client.is_closed and all(response.is_closed for response in responses))
+
+    async def test_invalid_second_request_never_returns_partial_reading_or_continues(self):
+        for invalid, status in ((b'', 200), (b'\x01', 200), (b'private error', 401)):
+            responses, requests = [], []
+
+            def handler(request, requests=requests, responses=responses, status=status, invalid=invalid):
+                requests.append(request)
+                index = len(requests)
+                response = httpx.Response(status if index == 2 else 200,
+                                          content=invalid if index == 2 else b'\x01\x02',
+                                          headers={'content-type': 'audio/pcm'})
+                responses.append(response)
+                return response
+
+            client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+            metrics = {}
+            with (
+                self.subTest(invalid=invalid, status=status),
+                patch('dbs_tts.api_key', return_value='unit-test-only'),
+                patch('dbs_tts.httpx.AsyncClient', return_value=client),
+                self.assertRaises(RuntimeError),
+            ):
+                await dbs_tts.synthesize('A sentence. ' * 600, 'en', metrics=metrics)
+            self.assertEqual(len(requests), 2)
+            self.assertTrue(client.is_closed and all(response.is_closed for response in responses))
+            self.assertNotIn('synthesis_seconds', metrics)
+            self.assertNotIn('audio_seconds', metrics)
+
+    async def test_cancellation_in_second_request_closes_whole_reading(self):
+        first = ChunkedPCM([b'\x01\x02'])
+        second = ChunkedPCM([b'\x03\x04'], gate_after=0)
+        requests, responses = [], []
+
+        def handler(request):
+            requests.append(request)
+            response = httpx.Response(200, stream=first if len(requests) == 1 else second,
+                                      headers={'content-type': 'audio/pcm'})
+            responses.append(response)
+            return response
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        with patch('dbs_tts.api_key', return_value='unit-test-only'), patch('dbs_tts.httpx.AsyncClient', return_value=client):
+            async with aclosing(dbs_tts.stream_pcm('A sentence. ' * 600, 'en')) as audio:
+                self.assertEqual(await anext(audio), b'\x01\x02')
+                pending = asyncio.create_task(anext(audio))
+                try:
+                    await asyncio.wait_for(second.waiting.wait(), 1)
+                    pending.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await pending
+                finally:
+                    pending.cancel()
+        self.assertEqual(len(requests), 2)
+        self.assertTrue(first.closed and second.closed and client.is_closed)
+        self.assertTrue(all(response.is_closed for response in responses))
 
     async def test_synthesize_preserves_frame_boundaries_and_metrics(self):
         pcm = bytes(range(256)) * 5 + b'\x01\x02'

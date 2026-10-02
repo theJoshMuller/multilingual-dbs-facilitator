@@ -259,7 +259,7 @@ class DemoSession:
             await self.report_state()
             await self.emit('prompt', key=prompt.key, text=text,
                             origin=self.controller.prompt_origin(prompt) if hasattr(self.controller, 'prompt_origin') else 'canonical')
-            await self.emit('status', stage='synthesizing', message='ElevenLabs Flash is preparing the next prompt.')
+            await self.emit('status', stage='synthesizing', message='ElevenLabs v4 Turbo is preparing the next prompt.')
             metrics = {}
             frames = await synthesize(text, self.language, metrics=metrics)
             await self.emit('tts', **metrics)

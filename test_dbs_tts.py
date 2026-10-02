@@ -19,6 +19,8 @@ from dbs_tts import (
 
 class TTSConfigurationTests(unittest.TestCase):
     def test_elevenlabs_is_default_for_both_languages(self):
+        self.assertEqual(MODEL_ID, 'eleven_v4_turbo')
+        self.assertEqual(DEFAULT_VOICE_ID, 'UgBBYS2sOqTuMpoF3BR0')
         for language in ('en', 'es'):
             with patch.dict(os.environ, {'DBS_LANGUAGE': language}, clear=True):
                 self.assertEqual(settings()['tts'], 'elevenlabs')
@@ -30,8 +32,10 @@ class TTSConfigurationTests(unittest.TestCase):
 
     def test_unsupported_output_locale_and_alias(self):
         self.assertEqual(tts_language('cmn'), 'zh')
+        self.assertEqual(tts_language('nb'), 'no')
+        self.assertEqual(tts_language('sw'), 'sw')
         with self.assertRaisesRegex(ValueError, 'does not support'):
-            tts_language('sw')
+            tts_language('xx')
 
     def test_per_language_voice_override(self):
         with patch.dict(os.environ, {'ELEVENLABS_VOICE_ID_ES': 'SpanishTestVoice'}, clear=True):
@@ -59,14 +63,16 @@ class TTSContractTests(unittest.IsolatedAsyncioTestCase):
         with patch('dbs_tts.api_key', return_value='unit-test-only'), patch('dbs_tts.httpx.AsyncClient', return_value=client):
             return await synthesize(text, 'es')
 
-    async def test_flash_payload_and_lossless_pcm(self):
+    async def test_v4_dialogue_payload_and_lossless_pcm(self):
         pcm = b'\x01\x02' * 655
         frames = await self.request(httpx.Response(200, content=pcm, headers={'content-type': 'audio/pcm'}))
         payload = json.loads(self.request_seen.content)
         self.assertEqual(payload['model_id'], MODEL_ID)
         self.assertEqual(payload['language_code'], 'es')
-        self.assertEqual(payload['text'], 'Hola, ¿quiénes nos acompañan hoy?')
-        self.assertFalse(payload['voice_settings']['use_speaker_boost'])
+        self.assertEqual(payload['inputs'], [{'text': 'Hola, ¿quiénes nos acompañan hoy?', 'voice_id': DEFAULT_VOICE_ID}])
+        self.assertEqual(payload['settings'], {'stability': 0.5, 'similarity': 0.75})
+        self.assertNotIn('voice_settings', payload)
+        self.assertEqual(str(self.request_seen.url).split('?')[0], 'https://api.elevenlabs.io/v1/text-to-dialogue/stream')
         self.assertEqual(self.request_seen.url.params['output_format'], 'pcm_16000')
         self.assertEqual(b''.join(bytes(frame.data) for frame in frames), pcm)
         self.assertTrue(all(frame.sample_rate == 16000 and frame.num_channels == 1 for frame in frames))

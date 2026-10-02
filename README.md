@@ -70,7 +70,7 @@ session. English and Spanish are the supported study languages.
 | Group introductions | Names and thankfulness, with each person confirming their own name |
 | Speaker recognition | Speechmatics transcription, diarization, and session-only voice identifiers |
 | Study flow | Canonical Waha questions and Genesis 1:1–25 |
-| Spoken facilitation | ElevenLabs Flash v2.5 in English and Spanish |
+| Spoken facilitation | ElevenLabs v4 Turbo with Mark — Natural Conversations |
 | Group controls | Confirm, advance, repeat, read the passage, pause, resume, and stop |
 | Browser experience | Microphone controls, roster, current question, transcript, and session diagnostics |
 | Text rehearsal | Practice the same study flow without a microphone or voice enrollment |
@@ -262,10 +262,10 @@ facilitation locale `DBS_LANGUAGE`. Realtime enrollment does not use batch
 `auto` or `multi` modes; provider account entitlements still apply.
 
 An additional locale needs canonical Waha spoken questions, matching Scripture,
-ElevenLabs Flash v2.5 speech support, and a model parser configured
-with `DBS_LLM_PROVIDER=ollama` or `openrouter`. Flash's configured language set
-contains 32 languages. Missing assets or unsupported speech output fail at
-startup.
+ElevenLabs v4 Turbo speech support, and a model parser configured
+with `DBS_LLM_PROVIDER=ollama` or `openrouter`. The configured TTS language set
+contains 85 model-API-listed codes, not 85 validated study languages. Missing
+assets or unsupported speech output fail at startup.
 
 Optional model parsers return validated `{intent, name}` objects. A reviewed
 `DBS_PROMPTS_FILE` can supply localized UI copy with the keys and placeholders
@@ -289,16 +289,22 @@ detection is English/Spanish; **Ctrl-C** remains available in the CLI.
 | `SPEECHMATICS_API_KEY` | Speech recognition and speaker identification |
 | `ELEVENLABS_API_KEY` / `ELEVEN_API_KEY` | Speech synthesis |
 | `ELEVENLABS_ENV_FILE` | Read an existing ElevenLabs key file |
-| `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_ID_ES` | Override the default Eric voice globally or for Spanish |
+| `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_ID_ES` | Override the default Mark voice globally or for Spanish |
 | `DBS_MAX_PEOPLE` / `DBS_MAX_SPEAKERS` | Group size and recognition ceiling; defaults are 7 and 10 |
 | `DBS_LLM_PROVIDER` | CLI parser: `rules` by default; optional `ollama` or `openrouter` |
 | `DBS_PROMPTS_FILE` | Reviewed localized interface strings |
 | `DBS_WEB_PORT` | Browser server port; defaults to `8094` |
 | `DBS_WEB_ORIGINS` | Exact browser origins allowed to connect |
 
-Speech synthesis uses `eleven_flash_v2_5` with 16 kHz PCM. Only
-`DBS_TTS_PROVIDER=elevenlabs` is supported. The console validates each prompt's
-audio before playback; first-byte timing is not time to audible response.
+Speech synthesis defaults to `eleven_v4_turbo` and Mark — Natural Conversations
+(`UgBBYS2sOqTuMpoF3BR0`) using HTTP Text-to-Dialogue streaming and 16 kHz PCM.
+Long text is sent in source-preserving requests of at most 2,000 characters;
+there is no alternate-model fallback. Only `DBS_TTS_PROVIDER=elevenlabs` is
+supported. The console validates each prompt's complete audio before playback;
+first-byte timing is not time to audible response. Josh approved real paired
+English/Spanish/Turkish output samples; that is not a human-group ASR or
+end-to-end study validation. Retained Flash language reports describe the earlier
+baseline, not the current default or a newly qualified support list.
 
 ## Session privacy and operating requirements
 

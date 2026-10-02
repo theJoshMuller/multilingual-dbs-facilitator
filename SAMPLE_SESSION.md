@@ -24,7 +24,7 @@ S2, and S3; those labels alone would not be enough.
 
 ## Names and thankfulness
 
-The opening request includes deterministic localized **guidance** inviting the whole group and explaining how to finish this round. William generates the spoken wording. Clear self-introductions register immediately; only uncertain names enter clarification. These are illustrative injected decisions, not live model evidence.
+The opening request includes deterministic localized **guidance** inviting the whole group and explaining how to finish this round. William generates the spoken wording. Clear self-introductions register immediately and produce no spoken output: the server deterministically suppresses any proposed acknowledgement or next-person invitation. Only uncertain names enter clarification. These are illustrative injected decisions, not live model evidence.
 
 **G · William [opening / respond]:** Welcome to Discovering God! Let's have everyone share their name and what they're thankful for since we last met, one person at a time. When the last person has shared, let me know everyone has spoken and you're ready for the next question.
 
@@ -40,15 +40,15 @@ The opening request includes deterministic localized **guidance** inviting the w
 
 **H · Anna [S1]:** Actually, Anna, with an a at the end.
 
-**G · William [introduce: Anna]:** Who would like to share their name and thankfulness next?
+**D · William [silent after generated introduce: Anna]:** *(No spoken output; leaves room for the next participant.)*
 
 **D · State:** Anna's own correction records Anna with the pending S1 evidence. No separate name-only confirmation is required. Another speaker cannot supply her correction or erase her unresolved clarification.
 
 **H · Ben [S2]:** I'm Ben. I'm thankful my new job is starting to feel less overwhelming. A colleague showed me how to finish a task I'd been stuck on.
 
-**G · William [introduce: Ben]:** *(Silence; records Ben and leaves room for the next participant.)*
+**D · William [silent after generated introduce: Ben]:** *(No spoken output; records Ben and leaves room for the next participant.)*
 
-**D · Timer:** Seven seconds of silence while listening queues one idle event. No nudge during playback, active speech, pause or queued participant input. The words below need model and speech-synthesis time in addition to the silence interval.
+**D · Timer:** Each new participant contribution resets the silence interval. Seven seconds of silence while listening queues one idle event. No nudge during playback, active speech, pause or queued participant input. The words below need model and speech-synthesis time in addition to the silence interval.
 
 **G · William [idle / respond]:** Anyone else? Let me know when everyone has shared and you're ready for the next question.
 

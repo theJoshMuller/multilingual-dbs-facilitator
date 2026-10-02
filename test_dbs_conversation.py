@@ -69,7 +69,11 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual([person.name for person in flow.roster], ['Josh'])
         self.assertEqual(flow.phase, 'introductions')
         self.assertIsNone(flow.pending)
-        self.assertEqual(prompts[0].values['text'], "Josh, glad to have you.")
+        self.assertEqual(prompts, [])
+        repeated = flow.apply(Decision('introduce', name='Josh', speech='Anyone else?'),
+                              speaker='S1', identifiers=('real-fixture-evidence',))
+        self.assertEqual(repeated, [])
+        self.assertEqual(len(flow.roster), 1)
 
     def test_three_people_and_explicit_group_ready_advance_once(self):
         flow = ConversationFlow(lesson())

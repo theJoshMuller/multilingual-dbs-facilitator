@@ -100,6 +100,50 @@ class WiringTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(session.controller.flow.roster[0].identifiers, ('private-test-evidence',))
         self.assertNotIn('private-test-evidence', str(session.state()))
 
+    async def test_clear_introductions_stay_silent_until_seven_second_nudge(self):
+        session = self.browser()
+        session.started = session.last_input = 100
+        session.speak = DemoSession.speak.__get__(session)
+        with patch('dbs_web.synthesize', new=AsyncMock(side_effect=AssertionError('Unexpected introduction speech'))) as synthesize:
+            for now, name, speaker in ((100, 'Anna', 'S1'), (104, 'Ben', 'S2')):
+                session.durations[speaker] = 8
+                session.recognizer.get_speaker_ids.return_value = [
+                    {'label': speaker, 'speaker_identifiers': [f'evidence-{speaker}']}]
+                self.brain.decisions.append(Decision(
+                    'introduce', name=name, speech=f'Thanks, {name}. Anyone else?',
+                    note='Acknowledged sharing and invited others.'))
+                with patch('dbs_web.time.monotonic', return_value=now):
+                    await session.process((Intent.DISCUSSION, '',
+                        f'[Speaker {speaker}] I am {name}, thankful for my family.', 'voice'))
+                synthesize.assert_not_awaited()
+                self.assertFalse(session.busy)
+                self.assertFalse(session.closed.is_set())
+            synthesize.assert_not_awaited()
+        self.assertEqual([p.name for p in session.controller.flow.roster], ['Anna', 'Ben'])
+        self.assertTrue(all(turn['role'] == 'user' for turn in session.controller.history))
+        decisions = [c.args[0] for c in self.ws.send_json.call_args_list
+                     if c.args[0]['type'] == 'decision']
+        self.assertEqual(len(decisions), 2)
+        for decision in decisions:
+            self.assertEqual(decision['prompts'], [])
+            self.assertEqual(decision['prompt_origins'], [])
+            self.assertIn('silent', decision['reason'])
+        with patch('dbs_web.time.monotonic', return_value=110.9):
+            await self.one_timer_cycle(session.tick(), 'dbs_web')
+        self.assertTrue(session.queue.empty(), 'The second participant resets the silence timer')
+        with patch('dbs_web.time.monotonic', return_value=111):
+            await self.one_timer_cycle(session.tick(), 'dbs_web')
+            self.assertEqual(session.queue.get_nowait(), 'idle')
+            session.queue.task_done()
+            self.brain.decisions.append(Decision('respond', speech='Anyone else ready to share?'))
+            session.speak = AsyncMock()
+            await session.process('idle')
+        self.assertEqual(self.brain.calls[-1][3], 'idle')
+        prompts = session.speak.call_args.args[0]
+        self.assertEqual([session.controller.render(p) for p in prompts], ['Anyone else ready to share?'])
+        self.assertEqual([session.controller.prompt_origin(p) for p in prompts], ['generated'])
+        self.assertEqual(session.controller.flow.phase, 'introductions')
+
     async def test_button_next_and_previous_are_direct_and_skip_model(self):
         session = self.browser()
         session.busy = False

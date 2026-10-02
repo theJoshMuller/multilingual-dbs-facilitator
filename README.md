@@ -82,7 +82,10 @@ allow the exact origin through `DBS_WEB_ORIGINS`; the server binds to loopback.
 The generated opening is prompted to invite everyone to share their name and thankfulness in one
 contribution, then tell William when everyone has spoken and the group is ready for
 the next question. A clear self-introduction registers the person immediately;
-there is no compulsory per-person name confirmation. Uncertain names use a brief
+there is no compulsory per-person name confirmation. Successful introductions are
+silent: the server suppresses any generated acknowledgement or immediate invitation,
+so the next person can speak. Only the seven-second silence event requests a nudge.
+Uncertain names use a brief
 clarification that only the same solo speaker can confirm or correct. A diarization
 label alone cannot bind a name: voice registration still requires usable opaque
 recognition evidence from sufficiently long introductions (at least five seconds).

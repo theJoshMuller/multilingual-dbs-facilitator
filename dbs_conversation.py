@@ -66,7 +66,9 @@ class ConversationFlow(DBSFlow):
         action, name = decision.action, decision.name
         if self.phase == 'done' and action != 'stop':
             return []
-        speech = self.generated(decision.speech)
+        # Recording an introduction must leave the microphone to the group,
+        # even if the model supplies an acknowledgement or next-person invitation.
+        speech = [] if action == 'introduce' else self.generated(decision.speech)
         if action == 'stop':
             self.phase = 'done'
             self.roster.clear()

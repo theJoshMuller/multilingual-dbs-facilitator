@@ -4,15 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#F2F2F2">
-  <title>William · Discover together</title>
+  <title>Multilingual Group Discovery Bible Study Facilitator</title>
   <link rel="stylesheet" href="./styles.css">
   <script src="./app.js" defer></script>
 </head>
 <body>
   <main class="shell">
     <header class="masthead">
-      <div class="brand"><div><p class="eyebrow">DISCOVER TOGETHER</p><h1>William <span>with your group</span></h1></div></div>
-      <span class="environment">WAHA · VOICE PROTOTYPE</span>
+      <div class="brand"><div><p class="eyebrow">DISCOVER TOGETHER</p><h1>Multilingual DBS <span>Facilitator</span></h1></div></div>
+      <span class="environment">WAHA-INSPIRED · GLOO HACKATHON</span>
     </header>
     <section class="intro"><h2>Good questions.<br>Discovered together.</h2><p>A little help to keep the conversation going. Read the passage, listen to each other, and discover what it says for yourselves.</p></section>
     <div id="error-banner" class="notice error" role="alert" hidden></div>
@@ -34,13 +34,13 @@
       <section class="panel prompt-panel" aria-labelledby="prompt-heading">
         <div class="section-heading"><h2 id="prompt-heading">A question for your group</h2><span id="question-key" class="mono muted small">—</span></div>
         <p id="current-prompt" class="prompt">Start with your name and something you’re thankful for since the last meeting.</p>
-        <div class="spoken-response"><div class="section-heading"><h3>William says</h3><span id="prompt-key" class="mono muted small">—</span></div><p id="latest-response" aria-live="polite">I’ll help with the questions. You discover the answers together.</p></div>
+        <div class="spoken-response"><div class="section-heading"><h3>Facilitator response</h3><span id="prompt-key" class="mono muted small">—</span></div><p id="latest-response" aria-live="polite">I’ll help with the questions. You discover the answers together.</p></div>
         <p id="wake-hint" class="wake-hint" role="status" hidden>Say “William” to interrupt reading.</p>
         <div id="pending-name" class="notice warning" hidden></div>
         <div class="navigation" aria-label="Question navigation"><button data-action="previous" disabled>← Previous question</button><button data-action="next" class="primary" disabled>Next question →</button></div>
         <div class="controls" aria-label="Session controls"><button data-action="everyone" disabled>Everyone is here</button><button data-action="repeat" disabled>Repeat question</button><button data-action="scripture" disabled>Read passage</button><button data-action="pause" disabled>Pause</button><button data-action="resume" disabled>Resume</button></div>
-        <p id="control-note" class="small muted">Talk naturally to William, or use the buttons. Previous, Next, and Everyone is here act directly. Your group sets the pace.</p>
-        <details class="guide"><summary>Ways to talk with William <span id="guide-locale">EN</span></summary><div id="quick-guide"></div></details>
+        <p id="control-note" class="small muted">Use voice commands or the buttons. Previous, Next, and Everyone is here act directly. Your group sets the pace.</p>
+        <details class="guide"><summary>Voice commands <span id="guide-locale">EN</span></summary><div id="quick-guide"></div></details>
         <div class="state-details"><span>Phase <strong id="phase">Not started</strong></span><span>Lesson <strong id="lesson-step">—</strong></span><span>Passage <strong id="bible">—</strong></span></div>
       </section>
       <section class="panel" aria-labelledby="roster-heading"><div class="section-heading"><h2 id="roster-heading">Around the table</h2><span id="roster-count" class="pill">0 people</span></div><p class="small muted">Introduce yourselves in your own words. Each person can confirm or correct their own name aloud.</p><div id="roster" class="roster"><p class="empty">There’s a place for everyone.</p></div><p class="small muted privacy-note">Temporary speaker labels only. Private voice identifiers never appear in debug history.</p></section>
@@ -56,12 +56,12 @@
       <p class="small muted">The meter shows the local mic even when muted. Real audio is sent only when the server is listening, including listening for “William” during Scripture reading. Otherwise, or when muted, only silence is sent. Pause and stop stay available.</p>
     </section>
     <div class="workspace-grid">
-      <section class="panel transcript-panel" aria-labelledby="transcript-heading"><div class="section-heading"><h2 id="transcript-heading">What William heard</h2><span class="pill">TRANSCRIPT</span></div><p class="small muted">Interim text may change. “Ignored” means heard but not acted on.</p><div id="transcript" class="feed transcript-feed" role="log" aria-label="Final transcripts"><p class="empty">Speechmatics transcripts will appear here.</p></div><div id="interim" class="interim" aria-label="Interim transcript">Waiting for speech…</div></section>
-      <section class="panel decision-panel" aria-labelledby="decision-heading"><div class="section-heading"><h2 id="decision-heading">What William did</h2><span id="decision-provider" class="pill">AWAITING SESSION</span></div><p class="small muted">Action summaries, source, model, and timing from the server. Not private reasoning or hidden model thoughts.</p><div id="decisions" class="feed" role="log" aria-label="Facilitator actions"><p class="empty">Actions and state transitions will appear here.</p></div></section>
+      <section class="panel transcript-panel" aria-labelledby="transcript-heading"><div class="section-heading"><h2 id="transcript-heading">What the group said</h2><span class="pill">TRANSCRIPT</span></div><p class="small muted">Interim text may change. “Ignored” means heard but not acted on.</p><div id="transcript" class="feed transcript-feed" role="log" aria-label="Final transcripts"><p class="empty">Speechmatics transcripts will appear here.</p></div><div id="interim" class="interim" aria-label="Interim transcript">Waiting for speech…</div></section>
+      <section class="panel decision-panel" aria-labelledby="decision-heading"><div class="section-heading"><h2 id="decision-heading">Facilitator actions</h2><span id="decision-provider" class="pill">AWAITING SESSION</span></div><p class="small muted">Action summaries, source, model, and timing from the server. Not private reasoning or hidden model thoughts.</p><div id="decisions" class="feed" role="log" aria-label="Facilitator actions"><p class="empty">Actions and state transitions will appear here.</p></div></section>
     </div>
     <section class="panel" aria-labelledby="metrics-heading"><div class="section-heading"><h2 id="metrics-heading">Timing & transport</h2><span class="small muted">Latest measurements</span></div><div class="stats-grid"><div><span>First TTS byte</span><strong id="stat-first">—</strong></div><div><span>Full synthesis</span><strong id="stat-synthesis">—</strong></div><div><span>Output duration</span><strong id="stat-audio">—</strong></div><div><span>Action decision</span><strong id="stat-decision">—</strong></div><div><span>Input received</span><strong id="stat-input">—</strong></div><div><span>Server queue</span><strong id="stat-queue">—</strong></div><div><span>WS buffered</span><strong id="stat-buffer">0 KB</strong></div><div><span>Dropped input</span><strong id="stat-drops">0 frames</strong></div><div><span>Queued playback</span><strong id="stat-playback">0.00 s</strong></div><div><span>Playback underruns</span><strong id="stat-underruns">0</strong></div><div><span>First chunk scheduled</span><strong id="stat-started">—</strong></div></div><p class="small muted">Streaming PCM plays as chunks arrive, with a small jitter buffer. First TTS byte and first chunk scheduled are not acoustic latency measurements. Browser start timing is an estimate; completion is acknowledged only after the final chunk finishes. Legacy servers may still send whole prompts.</p></section>
     <section class="panel event-panel" aria-labelledby="events-heading"><div class="section-heading"><h2 id="events-heading">Session event log</h2><button id="clear-debug" class="subtle">Clear debug history</button></div><p class="small muted">Display-safe event fields only. Each feed is capped at 200 entries. Clearing removes on-page transcripts and decisions, not the active session or providers’ records.</p><div id="events" class="event-feed" role="log" aria-label="Session events"><p class="empty">No session events yet.</p></div></section>
-    <footer>William · Discovery Bible Study <span>Session-only · No automatic reconnection</span></footer>
+    <footer>Multilingual DBS Facilitator · Group Bible Study <span>Session-only · No automatic reconnection</span></footer>
   </main>
 </body>
 </html>

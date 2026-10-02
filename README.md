@@ -1,395 +1,306 @@
-# William — multi-speaker voice agent POC
+# Multilingual Group Discovery Bible Study Facilitator
 
-One mic, several people, an agent that stays out of the way until it's wanted.
+**Discover Scripture together, in your group's language.**
 
-## Discovery Bible Study prototype — start here
+A Waha-inspired system for group Discovery Bible Study and a **Gloo Hackathon**
+project. Gather around one microphone, choose a study language, and
+work through the passage together. The facilitator guides the questions and
+keeps the session moving at the group's pace.
 
-Use **`dbs_agent.py`**, not the original general-purpose `agent.py`, for the
-non-answering facilitator. The original scaffold is documented below; its
-generative replies are deliberately not connected to the DBS speech pipeline.
+The heart of the app is discovery: read Scripture, listen to each other, and
+put what you discover into practice. Canonical Waha questions shape the study;
+the group brings the conversation.
+
+## The app
+
+The browser app brings Waha's visual style and study flow to a shared voice
+session. English and Spanish are the supported study languages.
+
+| Capability | Implementation |
+| --- | --- |
+| Group introductions | Names and thankfulness, with each person confirming their own name |
+| Speaker recognition | Speechmatics transcription, diarization, and session-only voice identifiers |
+| Study flow | Canonical Waha questions and Genesis 1:1–25 |
+| Spoken facilitation | ElevenLabs Flash v2.5 in English and Spanish |
+| Group controls | Confirm, advance, repeat, read the passage, pause, resume, and stop |
+| Browser experience | Microphone controls, roster, current question, transcript, and session diagnostics |
+| Text rehearsal | Practice the same study flow without a microphone or voice enrollment |
+
+The default DBS flow uses deterministic controls. Questions about the passage
+are redirected to Scripture and the group; the facilitator does not generate
+Bible answers. The CLI provides additional language configurations, with the
+requirements described below.
+
+## Architecture
+
+The voice pipeline connects speech recognition to the study controller, exact
+curriculum assets, and spoken output. The controller manages introductions,
+roster confirmation, study progression, and playback controls.
+
+```mermaid
+flowchart LR
+    Group["Group · browser or console"] --> STT["Speechmatics<br/>Transcription & speaker identification"]
+    STT --> Study["Study controller<br/>Group controls & canonical questions"]
+    Content["Waha curriculum<br/>Authorized Scripture"] --> Study
+    Study --> TTS["ElevenLabs<br/>Spoken facilitation"]
+    TTS --> Group
+```
+
+## Run the application
+
+### Prerequisites
+
+- **Python 3.13**; the pinned dependencies were verified with Python 3.13.5.
+- **Speechmatics** and **ElevenLabs** API keys for voice sessions.
+- A local **Waha app checkout** containing canonical curriculum data under
+  `shared/data`. English also needs its NLT Bible cache or an authorized
+  `SCRIPTURE_FILE`. These runtime assets are not bundled with this repository.
+- **PortAudio** for console microphone use. The browser captures its own audio.
+
+Clone and install:
 
 ```bash
-cd /home/yeshu/projects/voice_dbs_demo
+git clone https://github.com/theJoshMuller/multilingual-dbs-facilitator.git
+cd multilingual-dbs-facilitator
+
+python3.13 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+```
+
+Create a local `.env` file:
+
+```dotenv
+SPEECHMATICS_API_KEY=your-speechmatics-key
+ELEVENLABS_API_KEY=your-elevenlabs-key
+WAHA_ROOT=/absolute/path/to/waha-app
+DBS_LLM_PROVIDER=rules
+```
+
+The app loads `.env.local` and `.env`; both are ignored by Git. Without
+`WAHA_ROOT`, it looks for a sibling `../waha-app` directory.
+
+Start the server:
+
+```bash
+.venv/bin/python dbs_web.py
+```
+
+Open [localhost:8094/dbs/](http://localhost:8094/dbs/), select English or Spanish,
+confirm that everyone agrees to the voice session, and start together.
+Use headphones or a tested echo-cancelling speakerphone, speak one person at a
+time, and keep the page in the foreground on a phone.
+
+The browser sends microphone audio over a WebSocket to the existing study
+controller. This transport runs without a LiveKit room server or LiveKit Cloud.
+For access from another device, serve it over HTTPS and allow the exact public
+origin through `DBS_WEB_ORIGINS`. The Python server binds to loopback.
+
+### Console voice sessions
+
+Install PortAudio first if needed; on Debian/Ubuntu:
+
+```bash
+sudo apt install portaudio19-dev python3-dev
+```
+
+Then download the local VAD assets and choose a language:
+
+```bash
+.venv/bin/python dbs_agent.py download-files
 
 # English: canonical Waha questions and Genesis 1:1–25, NLT.
 .venv/bin/python dbs_agent.py console --log-level info
 
-# Spanish: canonical Waha questions, NVI only (participant reads the passage).
+# Spanish: canonical Waha questions, with participant-read NVI by default.
 DBS_LANGUAGE=es .venv/bin/python dbs_agent.py console --log-level info
+```
 
-# No microphone or voice enrollment; exercise the same controller by typing.
+Stop with **Ctrl-C**. English and Spanish rules mode requires no model API key.
+
+### Text rehearsal
+
+Practice introductions and study controls without microphone access, voice
+enrollment, or speech-provider calls:
+
+```bash
+.venv/bin/python dbs_agent.py rehearse
 DBS_LANGUAGE=es .venv/bin/python dbs_agent.py rehearse
 ```
 
-Stop with **Ctrl-C**. `.env` supplies `SPEECHMATICS_API_KEY`; default English/
-Spanish control parsing requires neither OpenRouter nor LiveKit Cloud.
-Both languages now use **ElevenLabs Flash v2.5** (`eleven_flash_v2_5`) and
-**Eric — Smooth, Trustworthy** (`cjVigY5qzO86Huf0OWal`). Speechmatics is used
-for transcription and diarization, not DBS speech output. eSpeak has been
-removed, with no robotic or alternate-provider fallback.
+Text rehearsal still requires the canonical lesson assets. Use **Ctrl-D** to exit.
 
-The ElevenLabs key is read from `ELEVENLABS_API_KEY` / `ELEVEN_API_KEY`, or the
-existing `~/Developer/video-use/.env`; no key is copied into the demo. Set
-`ELEVENLABS_ENV_FILE` to change that file. `ELEVENLABS_VOICE_ID` overrides Eric;
-`ELEVENLABS_VOICE_ID_ES` overrides only Spanish. A stale `DBS_TTS_PROVIDER`
-setting must be unset or changed to `elevenlabs`.
+## A session together
 
-Speech output uses the streaming HTTP endpoint with 16 kHz PCM and Flash's
-low-latency model. The controller currently validates the entire prompt's audio
-before playback; first-byte timing is therefore not time-to-audible-response.
-Spoken text, including names in confirmations, goes to ElevenLabs. Requests use
-normal provider logging, not enterprise zero-retention mode.
-Wear headphones or use a tested echo-cancelling speakerphone. A plain shared
-speaker/microphone can feed William's voice back into enrollment and controls.
+1. Each person says their name and something they are thankful for since the
+   last meeting. For example: “My name is Josh, and I'm thankful for …” or
+   “Me llamo Kami y estoy agradecida por …”.
+2. That same person confirms their own name with “Yes” or “Sí”. Voice enrollment
+   needs a real Speechmatics identifier and at least five seconds of recognized
+   speech; about 20 seconds per introduction works well.
+3. Once everyone has shared, finish introductions and confirm the group roster.
+   Mentioned friends do not count as participants.
+4. Read the passage and discuss each question together. The facilitator stays
+   quiet during ordinary discussion.
+5. Ask to advance when the group is ready, then confirm. Silence does not
+   advance the lesson.
 
-For a fresh Python 3.13 environment, install `requirements.txt` and run
-`dbs_agent.py download-files`. The existing `.venv` is already installed.
-PortAudio is the system audio prerequisite; no local TTS executable is needed.
+Use **`William` as the voice command prefix**. Prefix the commands below with
+“William,”; confirmations use “Yes” / “No” or “Sí” / “No”.
 
-### What to say
+| Action | English | Spanish |
+| --- | --- | --- |
+| Finish introductions | everyone is here | ya estamos todos |
+| Advance | next question | siguiente pregunta |
+| Repeat | repeat | repite |
+| Read the passage | read the passage again | lee el pasaje otra vez |
+| Pause | pause | pausa |
+| Resume | resume | continúa |
+| End | stop | detente |
 
-The opening now says:
+For example: “William, next question” or “William, siguiente pregunta”.
+The browser also provides buttons for session controls.
 
-> Welcome to a new session of Discovering God! Let's begin by catching up on how we're doing. First, can you say your name so I can recognize who is who? Then, based on what's happened to you since last time we met, what is something that you're thankful for?
+## Languages and Scripture
 
-Spanish uses the equivalent localized welcome. There is no spoken permission
-request; the host app handles permissions before starting the voice session.
+| Study language | Availability | Passage |
+| --- | --- | --- |
+| English | Tested controls and UI; available in browser and CLI | Genesis 1:1–25, NLT, from the canonical cache or an authorized file |
+| Spanish | Tested controls and UI; available in browser and CLI | Genesis 1:1–25, NVI; a participant reads unless an authorized file is supplied |
+| Other languages | CLI configuration available; requires integration validation | Requires matching canonical questions, Scripture, and speech support |
 
-1. Each participant says their name and shares something they are thankful for
-   since the last meeting: “My name is Josh, and I'm thankful for …” /
-   “Me llamo Kami y estoy agradecida por …”. Speak one at a time; about 20 seconds
-   works well. William requires a real Speechmatics identifier and at least five
-   seconds of recognized speech.
-2. The same speaker confirms their own name with “Yes” / “Sí”. Repeat for each
-   person; no separate persistent enrollment command is needed for this mode.
-3. Say “William, everyone is here” / “William, ya estamos todos”, then confirm
-   the complete roster after everyone has shared. Mentioned friends do not count
-   as participants. Thankfulness is covered during introductions, so William
-   continues with `f.002` rather than repeating the old welcome/thankfulness prompt.
-4. Discuss each question. William stays silent during ordinary discussion.
-   Say “William, next question” / “William, siguiente pregunta”, then “Yes” /
-   “Sí” to advance. Silence never advances the lesson.
-5. Controls: “William, repeat”, “William, read the passage again”, “William,
-   pause”, “William, resume”, “William, stop”. Spanish: “William, repite”,
-   “William, lee el pasaje otra vez”, “William, pausa”, “William, continúa”,
-   “William, detente”. Use these explicit phrases in the default rules mode.
+### Canonical Waha content
 
-The group is confirmed dynamically, up to `DBS_MAX_PEOPLE=7`. Speechmatics has
-a separate `DBS_MAX_SPEAKERS=10` ceiling, not a claim that ten people attended.
-The ceiling accepts 2–100. Voice identifiers and roster names are session-only;
-this mode does not write `.speaker_profiles.json` or record a local audio file.
-Speech still goes to Speechmatics; runtime/console logs may contain transcripts.
-The host app must obtain everyone's agreement before opening the microphone;
-for this standalone CLI, arrange that before launching it. Name confirmation
-only checks identity and is not a permission grant. An STT reconnection
-can change temporary speaker labels: restart introductions after a disconnect.
+Lesson `01.001.001` uses Waha's questions `f.001`, `f.002`, `f.003`, `f.008`,
+and `a.001` through `a.007`. The introductions combine names and
+thankfulness in place of the spoken `f.001` welcome; the remaining questions
+are exact Waha spoken-question strings.
 
-### Canonical content and Spanish NVI
+The extracted reference is in
+[research/canonical-01.001.001.json](research/canonical-01.001.001.json).
+[Facilitation research](research/dmc-facilitation-evidence.md) records the
+source guidance. Curriculum and Scripture are read from source assets, never
+reconstructed or translated by a model.
 
-Lesson `01.001.001` is read from the adjacent `../waha-app` data, or `WAHA_ROOT`:
-`f.001`, `f.002`, `f.003`, `f.008`, Genesis 1:1–25, `a.001` through `a.007`.
-The English passage is read from Waha's existing NLT cache. The custom onboarding
-replaces spoken `f.001` with names and thankfulness. All remaining English and
-Spanish questions are exact Waha spoken-question strings, not model rewrites;
-the canonical source data is unchanged.
-The independently extracted reference is `research/canonical-01.001.001.json`.
-DMC source guidance is in `research/dmc-facilitation-evidence.md`.
+### Spanish NVI
 
-**Spanish is NVI, never NBLA or Portuguese NVI-PT.** No authorized local Spanish
-NVI passage was available for this run, so the prototype explicitly asks a
-participant to read it and waits before the retelling question. Source:
-https://www.bible.com/es/bible/128/GEN.1.NVI
-It does not scrape, invent, translate, or substitute Scripture.
+Spanish uses **NVI**. When an authorized local NVI passage is unavailable, the
+facilitator asks a participant to read and waits before the retelling question.
 
-To enable automatic NVI reading, supply an authorized UTF-8 JSON file through
-`SCRIPTURE_FILE=/absolute/path/passage.json`. Required fields are
-`bibleTextId: "NVI"`, `languageId: "spa"`, and `verses`, an ordered array of
-exactly 25 objects with `verseId` (`GEN.1.1` through `GEN.1.25`) and nonempty
-`text`. An optional `copyright` string records attribution. Incorrect versions,
-missing verses and changed ordering are rejected. Do not commit private or
-restricted Bible exports.
+To enable spoken NVI reading, set `SCRIPTURE_FILE` to an authorized UTF-8 JSON
+file with:
 
-### Multilingual scope — configuration is not full-language validation
+- `bibleTextId: "NVI"` and `languageId: "spa"`.
+- `verses`: exactly 25 objects, ordered from `GEN.1.1` through `GEN.1.25`,
+  each containing `verseId` and nonempty `text`.
+- An optional `copyright` string for attribution.
 
-`dbs_agent.py list-languages` lists the captured Speechmatics discovery catalog:
-56 individual language codes and 5 combined-language packs. `STT_LANGUAGE`
-selects recognition independently of `DBS_LANGUAGE`, the facilitation locale.
-`STT_DOMAIN` is optional for domain-specific packs. Realtime enrollment does not
-use batch `auto`/`multi` modes, and account entitlements still apply. The catalog
-is not a promise of unrestricted code-switching or that every locale is runnable.
+Incorrect versions, missing verses, and changed ordering are rejected.
+Keep private or restricted Bible exports out of the repository.
 
-English and Spanish have tested deterministic controls and hand-authored UI.
-Other locales require all of: canonical Waha spoken questions, a resolved Bible
-cache or `SCRIPTURE_FILE`, support in ElevenLabs Flash v2.5, and
-`DBS_LLM_PROVIDER=ollama` or `openrouter` for intent parsing.
-Flash supports 32 languages, not all Speechmatics recognition languages;
-unsupported speech-output locales fail explicitly rather than using eSpeak.
-`WAHA_LANGUAGE` disambiguates the Waha locale. Missing assets fail at startup;
-there is no silent English or alternate-Bible fallback.
+### Broader language configuration
 
-Optional model routes emit only validated `{intent, name}` objects, never
-answers. A supplied `DBS_PROMPTS_FILE` contains a reviewed translation with the
-same keys/placeholders as `dbs_prompts.EN`; otherwise only prototype UI copy is
-translated at startup. Neither curriculum nor Scripture is model-translated.
-These optional routes and other locales have not been live-validated. Immediate
-stop/pause detection is currently English/Spanish; **Ctrl-C remains universal**.
-If choosing OpenRouter, source `~/.config/shell/profile` at launch rather than
-copying its key into this repository. Participant turns then go to that provider.
+```bash
+.venv/bin/python dbs_agent.py list-languages
+```
 
-### Verification and prototype boundaries
+The captured Speechmatics catalog contains 56 individual language codes and
+five combined-language packs. This is recognition coverage, not a claim that
+all of those languages have a working study experience.
+
+The CLI can select recognition with `STT_LANGUAGE` independently of the
+facilitation locale `DBS_LANGUAGE`. Realtime enrollment does not use batch
+`auto` or `multi` modes; provider account entitlements still apply.
+
+An additional locale needs canonical Waha spoken questions, matching Scripture,
+ElevenLabs Flash v2.5 speech support, and a model parser configured
+with `DBS_LLM_PROVIDER=ollama` or `openrouter`. Flash's configured language set
+contains 32 languages. Missing assets or unsupported speech output fail at
+startup.
+
+Optional model parsers return validated `{intent, name}` objects. A reviewed
+`DBS_PROMPTS_FILE` can supply localized UI copy with the keys and placeholders
+from `dbs_prompts.EN`; otherwise these routes translate interface
+copy at startup. They do not translate curriculum or Scripture. Participant
+turns are sent to the selected model provider.
+
+The browser currently accepts English and Spanish only. Additional CLI locales
+and optional model routes have not been live-validated. Immediate stop/pause
+detection is English/Spanish; **Ctrl-C** remains available in the CLI.
+
+## Configuration
+
+| Variable | Purpose |
+| --- | --- |
+| `WAHA_ROOT` | Waha checkout containing canonical curriculum and Bible assets |
+| `DBS_LANGUAGE` | CLI facilitation locale; defaults to `en` |
+| `WAHA_LANGUAGE` | Explicit Waha locale when language matching is ambiguous |
+| `STT_LANGUAGE` / `STT_DOMAIN` | CLI recognition language and optional domain |
+| `SCRIPTURE_FILE` | Authorized, version-matched passage JSON |
+| `SPEECHMATICS_API_KEY` | Speech recognition and speaker identification |
+| `ELEVENLABS_API_KEY` / `ELEVEN_API_KEY` | Speech synthesis |
+| `ELEVENLABS_ENV_FILE` | Read an existing ElevenLabs key file |
+| `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_ID_ES` | Override the default Eric voice globally or for Spanish |
+| `DBS_MAX_PEOPLE` / `DBS_MAX_SPEAKERS` | Group size and recognition ceiling; defaults are 7 and 10 |
+| `DBS_LLM_PROVIDER` | CLI parser: `rules` by default; optional `ollama` or `openrouter` |
+| `DBS_PROMPTS_FILE` | Reviewed localized interface strings |
+| `DBS_WEB_PORT` | Browser server port; defaults to `8094` |
+| `DBS_WEB_ORIGINS` | Exact browser origins allowed to connect |
+
+Speech synthesis uses `eleven_flash_v2_5` with 16 kHz PCM. Only
+`DBS_TTS_PROVIDER=elevenlabs` is supported. The console validates each prompt's
+audio before playback; first-byte timing is not time to audible response.
+
+## Session privacy and operating requirements
+
+Get everyone's agreement before opening the microphone. Speechmatics receives
+microphone speech for transcription and speaker identification; ElevenLabs
+receives spoken text, including names. Normal provider logging applies.
+Optional model routes also receive participant turns.
+
+DBS speaker identifiers and roster names are session-only. The DBS flow does
+not persist `.speaker_profiles.json` or record local audio. Browser transcripts
+and diagnostics stay in page memory; console logs may contain transcripts.
+Restart introductions after an STT disconnect because temporary speaker labels
+can change.
+
+English and Spanish are the live-tested languages. Room-level speaker accuracy
+and echo handling have not been validated in a human group trial. Rules mode
+expects explicit commands. Stop/pause preemption follows finalized recognition rather
+than happening instantly. Resuming an interrupted console reading replays its
+prompt batch. The limited danger-phrase handling is not emergency monitoring.
+
+## Development
+
+Run the local regression suite and lint checks:
 
 ```bash
 .venv/bin/python -m unittest -v
 uvx ruff check dbs_*.py test_dbs*.py smoke_dbs.py
+```
 
-# Real API calls using synthesized test speech, not microphone recordings.
+Optional voice smoke checks make real speech-provider calls using synthesized
+test speech:
+
+```bash
 .venv/bin/python smoke_dbs.py --language en
 .venv/bin/python smoke_dbs.py --language es
 ```
 
-The audio smoke test sends generated speech through the actual Speechmatics
-plugin, obtains a real voice identifier, then exercises name/roster confirmation
-as text through the controller. It is not a multi-person recognition-accuracy
-test. Runtime regressions use mocks for cancellation, provider failure and
-serialization; they do not prove acoustic barge-in accuracy in a room.
+Those checks exercise real voice identification and controller confirmations.
+They do not establish multi-person recognition accuracy or acoustic interruption
+accuracy in a room.
 
-Known limits: English/Spanish only are live-tested; NVI is participant-read
-unless explicitly supplied; group diarization/echo still needs a human trial;
-rules mode expects explicit commands; danger-phrase detection is intentionally
-limited and is not emergency monitoring. Stop/pause commands preempt after ASR
-finalization, not instantaneously. Resuming an interrupted reading replays the
-interrupted prompt batch from its beginning rather than silently skipping it.
+| File | Responsibility |
+| --- | --- |
+| [dbs_web.py](dbs_web.py) | Browser WebSocket transport and session controls |
+| [web/](web/) | Waha-inspired browser interface |
+| [dbs_agent.py](dbs_agent.py) | Console runtime and shared study controller |
+| [dbs_flow.py](dbs_flow.py) | Study phases, confirmations, and roster |
+| [dbs_curriculum.py](dbs_curriculum.py) | Canonical questions and validated Scripture |
+| [dbs_intents.py](dbs_intents.py) | Deterministic and optional model-assisted controls |
+| [dbs_prompts.py](dbs_prompts.py) | English and Spanish interface copy |
+| [dbs_tts.py](dbs_tts.py) | ElevenLabs speech synthesis |
+| [ops/dbs-web.service](ops/dbs-web.service) | Example systemd service; adjust local paths and origins |
 
-## Original general-purpose scaffold (not DBS)
-
-### Accounts you need
-
-Two:
-
-1. **Speechmatics** — STT with realtime diarization, plus TTS. Free tier is
-   480 min/month, 20 concurrent realtime sessions. One key covers both ends of
-   the pipeline. → `SPEECHMATICS_API_KEY`
-2. **OpenRouter** → `OPENROUTER_API_KEY`. Handled by the OpenAI plugin via
-   `openai.LLM.with_openrouter()`, so there's no extra package and you switch
-   models by editing a string. Set `LLM_MODEL` to override the default.
-
-**LiveKit Cloud** is a third, but you don't need it for `console` mode — that
-runs against your machine's own mic and speakers with no room involved. Set the
-vars anyway if you plan to move to browser clients later; the free tier is
-plenty and `lk cloud auth && lk app env -w .env.local` fills them in.
-
-## Setup
-
-```bash
-# System audio deps (Debian/Ubuntu)
-sudo apt install portaudio19-dev python3-dev
-
-python -m venv .venv && source .venv/bin/activate
-pip install "livekit-agents[speechmatics,openai,silero]~=1.4" python-dotenv sounddevice
-
-# .env.local
-cat > .env.local <<'EOF'
-SPEECHMATICS_API_KEY=...
-OPENROUTER_API_KEY=...
-# LLM_MODEL=anthropic/claude-sonnet-4.5
-# LIVEKIT_URL=
-# LIVEKIT_API_KEY=
-# LIVEKIT_API_SECRET=
-EOF
-
-# Fetches the Silero VAD weights — required before first run
-python agent.py download-files
-
-python agent.py console
-```
-
-Wear headphones, or William will hear his own voice and transcribe it as a
-fourth speaker. The real fix is speaker filtering (below); headphones are the
-five-second version.
-
-## Enroll known speakers
-
-[Speechmatics speaker identification](https://docs.speechmatics.com/speech-to-text/features/speaker-identification)
-can generate an encrypted voice identifier from a 5–30 second sample of one
-person speaking alone. William saves those identifiers locally and sends them
-back to Speechmatics in future sessions, which lets the transcript use a
-stable name such as `[Speaker Josh]` instead of a temporary label such as
-`[Speaker S1]`.
-
-Run enrollment once per person before starting the agent:
-
-```bash
-python agent.py enroll Josh
-python agent.py enroll Kami
-python agent.py list-speakers
-python agent.py console
-```
-
-Enrollment records 20 seconds by default. Use `--seconds` with any whole-number
-duration from 5 through 30 seconds to change it:
-
-```bash
-python agent.py enroll Josh --seconds 30
-```
-
-Running enrollment again with the same name appends another identifier. This
-can improve recognition when the samples represent different microphones,
-positions, or room conditions. Use `--replace` to discard that person's old
-identifiers, or remove a profile entirely:
-
-```bash
-python agent.py enroll Josh --replace
-python agent.py remove-speaker Josh
-```
-
-Profiles are stored in `.speaker_profiles.json` with owner-only permissions.
-The identifiers are encrypted and scoped by Speechmatics to the account,
-project, and recognition model, but they are still derived from a person's
-voice: keep this file private and get each person's consent before enrolling
-them. Re-enroll everyone after changing the Speechmatics recognition model.
-
-## Running the LiveKit server locally
-
-Console mode needs no server at all. You only want one when you're ready for a
-real room with a browser client in it.
-
-```bash
-docker run --rm \
-  -p 7880:7880 -p 7881:7881 -p 7882:7882/udp \
-  livekit/livekit-server --dev --bind 0.0.0.0
-```
-
-`--dev` starts an insecure single-node server with a fixed, well-known
-credential pair. Fine on a laptop, never anywhere else:
-
-```
-LIVEKIT_URL=ws://localhost:7880
-LIVEKIT_API_KEY=devkey
-LIVEKIT_API_SECRET=secret
-```
-
-Then run the agent as a worker instead of a console app:
-
-```bash
-python agent.py dev
-```
-
-It connects to the local server and waits. Nothing happens until a participant
-joins a room — that's the job trigger.
-
-### A client to join with
-
-```bash
-lk app create --template voice-assistant-frontend william-ui
-cd william-ui   # put the same three vars in .env.local
-pnpm install && pnpm dev
-```
-
-Open `http://localhost:3000`. Both sides are on localhost, so `ws://` works —
-the hosted playground at agents-playground.livekit.io will *not* connect to
-your local server, because an HTTPS page can't open an insecure websocket.
-
-For a bare client that needs a token by hand:
-
-```bash
-lk token create --api-key devkey --api-secret secret \
-  --join --room william-poc --identity josh --valid-for 24h
-```
-
-### Reaching it over Tailscale
-
-Two separate problems, and the second one is the one that wastes an evening.
-
-**1. Media path.** `--dev` advertises the host's IP addresses as ICE
-candidates, and it may not pick your tailnet one. Pin it:
-
-```bash
-docker run --rm --network host \
-  livekit/livekit-server --dev \
-  --node-ip $(tailscale ip -4)
-```
-
-`--network host` matters on Linux: inside a bridge network the server can't
-see the `tailscale0` interface, so it advertises a container IP that nothing on
-the tailnet can route to. Media flows direct over UDP 7882 to that node IP —
-`tailscale serve` proxies TCP only, so it can't carry it.
-
-**2. Secure context.** A browser only grants microphone access on
-`localhost` or HTTPS. `http://100.x.y.z:3000` gets you neither, so
-`getUserMedia` fails silently-ish and you'll blame the agent. Terminate TLS
-with Tailscale (enable MagicDNS + HTTPS certificates in the admin console
-first):
-
-```bash
-tailscale serve --bg 3000                # https://<host>.<tailnet>.ts.net
-tailscale serve --bg --https=8443 7880   # wss://<host>.<tailnet>.ts.net:8443
-```
-
-The second one exists because an HTTPS page can't open a `ws://` connection.
-Point the frontend at the wss URL:
-
-```
-LIVEKIT_URL=wss://<host>.<tailnet>.ts.net:8443
-```
-
-The agent itself still connects over plain `ws://localhost:7880` — it's on the
-same machine as the server and doesn't need any of this.
-
-### What you give up versus Cloud
-
-Enhanced noise cancellation is Cloud-only, so drop `noise_cancellation` from
-`RoomInputOptions` if you add it. Everything else in this scaffold runs
-locally: the Speechmatics plugin talks to Speechmatics directly rather than
-through LiveKit Inference, and Silero VAD is a local model. If you later switch
-the STT over to LiveKit Inference to skip the Speechmatics key, that's a Cloud
-dependency and it won't work against `--dev`.
-
-One caveat for your actual use case: a single shared microphone means one
-browser tab publishing audio. The room only starts earning its keep when you
-want remote participants or a UI. For two people at one laptop mic, console
-mode is still the shorter path.
-
-## What to expect on first run
-
-Talk with someone else in the room. Watch the log lines — every turn is printed
-with its `[Speaker S1]` tag before anything is sent to the LLM. Two things will
-be obviously wrong at first, and both are tuning problems rather than design
-problems:
-
-- **Unknown-speaker label drift.** Enrolled speakers can keep a stable name,
-  but someone without a profile may still come back as a new speaker ID after
-  going quiet for a while.
-- **Turn boundaries.** `min_endpointing_delay` is the dial. Too low and William
-  treats a mid-sentence breath as a turn; too high and he feels sluggish when
-  addressed directly.
-
-## Where the logic lives
-
-| Behavior | Where |
-|---|---|
-| Personality, speaker-tag handling, reply length | `SYSTEM_PROMPT` |
-| What counts as "he was called" | `WAKE_PATTERN` |
-| How long a lull runs before he speaks | `IDLE_REPLY_SECONDS` |
-| Suppressing an unwanted volunteer reply | `SKIP_TOKEN` handling |
-| Enrolled voice profiles | `.speaker_profiles.json` |
-
-The core trick is in `on_user_turn_completed`: it raises `StopResponse` on
-every human turn, which kills the framework's automatic reply. Speech is then
-triggered explicitly — by the wake word, or by the silence watchdog. That
-inversion is what separates a group participant from a request/response
-assistant.
-
-## Known gaps in this scaffold
-
-- **SKIP isn't enforced.** The prompt tells William to reply `SKIP` when he has
-  nothing to add on a lull, but nothing intercepts it before TTS. Override
-  `tts_node` (or `llm_node`) to swallow that response.
-- **No echo suppression.** See headphones, above. Production answer is
-  `stt.update_speakers(ignore_speakers=[...])` once you know William's label.
-- **Buffer grows unbounded** between replies. Cap it if the group talks for a
-  long stretch without addressing him.
-- **Model string** — `anthropic/claude-sonnet-4.5` is a starting point. Check
-  the OpenRouter model list and set `LLM_MODEL`. For a group conversation the
-  latency budget is looser than a 1:1 call, since William only speaks on a
-  wake word or a lull, so a slower/stronger model is more affordable here than
-  in a normal voice agent.
+The legacy general-purpose `agent.py` runtime has its own
+[legacy setup guide](docs/legacy-voice-agent.md).

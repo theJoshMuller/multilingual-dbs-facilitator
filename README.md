@@ -92,12 +92,16 @@ recognition evidence from sufficiently long introductions (at least five seconds
 An explicit self-correction of a registered name requires matching voice evidence.
 Text rehearsal deliberately bypasses voice enrollment and creates no voice profile.
 
-The LLM selects `finish_enrollment` for an explicit everyone-shared/readiness
-signal, and the server advances to the next canonical question. If the final
-person introduces themselves and gives that signal in the same contribution,
+The LLM interprets readiness from the current turn and conversation history:
+a clear request to begin or continue can select `finish_enrollment`, including a
+natural reply to William's readiness invitation. Participants do not need to state
+that everyone has shared or use particular words. The server then advances to the
+next canonical question. If the final person introduces themselves and gives that signal in the same contribution,
 the decision can include their own name so they are recorded before advancing.
-Silence, speaker count, or a list of other people's names does not establish that
-everyone has shared. Unresolved name clarification blocks completion.
+Silence, speaker count, or a list of other people's names does not authorize
+continuing or establish attendance. A participant's readiness request authorizes
+continuing with the registered group; it does not prove that everyone has shared.
+Unresolved name clarification blocks completion.
 
 Ask William directly to move on, go back, repeat the question, read the passage,
 pause, resume, or stop. In generative mode “William, let's move on” advances

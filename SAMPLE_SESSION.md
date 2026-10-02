@@ -54,11 +54,17 @@ The opening request includes deterministic localized **guidance** inviting the w
 
 **D · State:** Still introductions; roster contains Anna and Ben. The nudge does not advance or infer that everyone has spoken. Another nudge requires new participant input or a navigation/resume control.
 
-**H · Carla [S3]:** I'm Carla. I'm grateful my neighbor helped me carry groceries home when I hurt my ankle. It made the week easier. I'm the last person; everyone has shared and we're ready for the next question.
+**H · Carla [S3]:** I'm Carla. I'm grateful my neighbor helped me carry groceries home when I hurt my ankle. It made the week easier.
 
-**G · William [finish_enrollment, own name: Carla]:** Let's hear how everyone is doing.
+**D · William [silent after generated introduce: Carla]:** *(No spoken output; records Carla and waits.)*
 
-**D · State:** The same decision first registers Carla with real solo voice evidence, then advances once to `f.002`. Missing or ambiguous evidence, an unresolved name, duplicate names or participant capacity block completion. A separate group-readiness turn works too. Silence alone never completes introductions.
+**H · Anna [S1]:** Let's begin.
+
+**G · William [finish_enrollment]:** Let's hear how everyone is doing.
+
+**D · State:** The injected LLM decision interprets Anna's intent to begin in the context of the opening and readiness invitation, then the server advances once to `f.002`. No exact phrase or explicit attendance declaration is required. Other natural requests to get started or continue can express the same idea. Quoting such words in ordinary discussion does not authorize a transition. Classification is LLM-generated; execution and the pending-name guard are deterministic. Silence alone never completes introductions.
+
+**D · Alternative contribution:** If Carla's own name/thankfulness contribution also expresses readiness, the LLM may choose `finish_enrollment` with her own name. The server records her before advancing, subject to usable solo evidence, distinct names, participant capacity and resolved clarification. Readiness does not prove a complete attendance list.
 
 The opening already covered thankfulness. Source `f.001` is recorded here for comparison, **not replayed**:
 

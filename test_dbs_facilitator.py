@@ -258,6 +258,46 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("no\nseparate yes gates", INSTRUCTIONS)
         self.assertIn("Bible-content or interpretation question directed to William, use repeat", INSTRUCTIONS)
 
+    async def test_contextual_readiness_reaches_llm_with_history_before_transition(self):
+        from dbs_controller import ConversationController
+        # These are injected decisions, not evidence of live semantic accuracy.
+        for readiness in ("Let's begin.", "We can get going now.", "Adelante, empecemos."):
+            with self.subTest(readiness=readiness):
+                controller = ConversationController(lesson(), facilitator=self.brain)
+                self.output("introduce", name="Ana")
+                await controller.accept("I'm Ana, thankful for my family.",
+                                        speaker="S1", identifiers=("fixture-evidence",))
+                invitation = "Anyone else, or is the group ready to continue?"
+                self.output("respond", speech=invitation)
+                await controller.idle()
+                requests = len(self.requests)
+                self.output("finish_enrollment", speech="Let's hear how everyone is doing.")
+                prompts = await controller.accept(readiness, speaker="S1")
+                self.assertEqual(len(self.requests), requests + 1)
+                data = json.loads(self.payload()["messages"][1]["content"])
+                self.assertEqual(data["text"], readiness)
+                self.assertEqual(data["event"], "participant")
+                self.assertEqual(data["context"]["phase"], "introductions")
+                self.assertEqual(data["context"]["roster"], [{"name": "Ana", "speaker": "S1"}])
+                self.assertEqual(data["context"]["history"][-1],
+                                 {"role": "assistant", "text": invitation})
+                self.assertEqual(controller.last_decision.action, "finish_enrollment")
+                self.assertEqual(controller.flow.phase, "lesson")
+                self.assertEqual(prompts[-1].key, "a.001")
+                self.assertEqual(controller.render(prompts[-1]), lesson().questions["a.001"])
+                self.assertFalse(any(p.key == "f.001" for p in prompts))
+
+                # An incidental quotation still goes to the model; it is not a
+                # local phrase trigger that navigates regardless of the decision.
+                position = controller.flow.index
+                requests = len(self.requests)
+                self.output("listen")
+                quoted = 'My colleague said "Let\'s begin" before our meeting.'
+                self.assertEqual(await controller.accept(quoted, speaker="S1"), [])
+                self.assertEqual(len(self.requests), requests + 1)
+                self.assertEqual(json.loads(self.payload()["messages"][1]["content"])["text"], quoted)
+                self.assertEqual(controller.flow.index, position)
+
     async def test_introduce_and_reject_name_contract(self):
         self.output("introduce", name="Ana María", speech="Ana María—did I catch that right?")
         self.assertEqual((await self.brain.decide("Soy Ana María.", context(phase="introductions"))).name, "Ana María")

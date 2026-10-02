@@ -74,7 +74,8 @@ def _request_texts(text: str):
 async def stream_pcm(text: str, language: str, *, voice: str = '', metrics: dict | None = None) -> AsyncGenerator[bytes, None]:
     """Yield mono little-endian int16 16 kHz PCM as it arrives (<=6400 bytes).
 
-    Long prompts use consecutive bounded requests, preserving exact text/order.
+    Long prompts use bounded requests without trimming voiced chunks.
+    Whitespace-only chunks are skipped because they contain no speech.
     Status and audio type are checked before yielding. A later transport failure
     or odd final byte can still fail after partial audio; there is no fallback.
     Callers stopping early must use ``contextlib.aclosing`` or ``aclose()`` to
@@ -103,7 +104,7 @@ async def stream_pcm(text: str, language: str, *, voice: str = '', metrics: dict
     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=15), follow_redirects=False) as client:
         for segment in _request_texts(text):
             if not segment.strip():
-                raise ValueError('Cannot synthesize a whitespace-only request chunk')
+                continue
             payload = {
                 'model_id': MODEL_ID, 'language_code': code,
                 'inputs': [{'text': segment, 'voice_id': selected_voice}],

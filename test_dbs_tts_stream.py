@@ -177,7 +177,7 @@ class PCMStreamingTests(unittest.IsolatedAsyncioTestCase):
             self.assert_closed(source, response, client)
 
     async def test_validation_happens_before_http_client_creation(self):
-        cases = [('Hello.', 'xx', ''), ('Hello.', 'en', '../voice'), ('   ', 'en', '')]
+        cases = [('Hello.', 'xx', ''), ('Hello.', 'en', '../voice'), ('   ', 'en', ''), ('\n' * 2001, 'en', '')]
         for text, language, voice in cases:
             with self.subTest(text=text, language=language, voice=voice), patch('dbs_tts.httpx.AsyncClient') as client:
                 with self.assertRaises(ValueError):
@@ -210,6 +210,35 @@ class PCMStreamingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(b''.join(bytes(frame.data) for frame in frames), pcm * len(pieces))
         self.assertTrue(client.is_closed and all(response.is_closed for response in responses))
         self.assertEqual(metrics['audio_seconds'], round(len(pcm) * len(pieces) / 32000, 3))
+
+    async def test_whitespace_only_chunks_do_not_abort_valid_speech(self):
+        texts = [
+            ('Hello, everyone. ' * 300)[:1999] + ' \n',
+            '\n' * 2000 + 'Hello.',
+            'Hello. ' + '\n' * 4000 + ' Goodbye.',
+        ]
+        for text in texts:
+            with self.subTest(text=text):
+                pieces = list(dbs_tts._request_texts(text))
+                self.assertEqual(''.join(pieces), text)
+                requests, responses = [], []
+                pcm = b'\x01\x02' * 320
+
+                def handler(request, requests=requests, responses=responses, pcm=pcm):
+                    requests.append(json.loads(request.content)['inputs'][0]['text'])
+                    response = httpx.Response(200, content=pcm, headers={'content-type': 'audio/pcm'})
+                    responses.append(response)
+                    return response
+
+                client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+                metrics = {}
+                with patch('dbs_tts.api_key', return_value='unit-test-only'), patch('dbs_tts.httpx.AsyncClient', return_value=client):
+                    frames = await dbs_tts.synthesize(text, 'en', metrics=metrics)
+                self.assertEqual(requests, [piece for piece in pieces if piece.strip()])
+                self.assertTrue(all(0 < len(piece) <= 2000 for piece in requests))
+                self.assertEqual(b''.join(bytes(frame.data) for frame in frames), pcm * len(requests))
+                self.assertEqual(metrics['audio_seconds'], round(len(pcm) * len(requests) / 32000, 3))
+                self.assertTrue(client.is_closed and all(response.is_closed for response in responses))
 
     async def test_invalid_second_request_never_returns_partial_reading_or_continues(self):
         for invalid, status in ((b'', 200), (b'\x01', 200), (b'private error', 401)):

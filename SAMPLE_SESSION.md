@@ -24,7 +24,9 @@ S2, and S3; those labels alone would not be enough.
 
 ## Names and thankfulness
 
-**G · William [opening / respond]:** Welcome! Tell us your name and something you are thankful for since we last met.
+The opening request includes the earlier localized welcome as deterministic **guidance**. William generates the spoken invitation: names come before thankfulness, both in the same contribution. This example is illustrative; a live model may vary its wording.
+
+**G · William [opening / respond]:** Welcome to Discovering God! Let's catch up on how we're doing. Start by telling us your name, then share something you're thankful for since we last met. We'll hear from one person at a time.
 
 **H · Anna [S1]:** I'm Anna. I'm thankful that my sister is recovering, and that we finally had time to eat together this week.
 
@@ -44,7 +46,7 @@ S2, and S3; those labels alone would not be enough.
 
 **H · Anna [S1]:** That's me.
 
-**G · William [confirm_name]:** Thanks, Anna. Who would like to introduce themselves next?
+**G · William [confirm_name]:** Thanks, Anna. Who would like to share their name and something they are thankful for next?
 
 **H · Ben [S2]:** I'm Ben. I'm thankful my new job is starting to feel less overwhelming. A colleague showed me how to finish a task I'd been stuck on.
 
@@ -52,7 +54,7 @@ S2, and S3; those labels alone would not be enough.
 
 **H · Ben [S2]:** You got it.
 
-**G · William [confirm_name]:** Who else would like to introduce themselves?
+**G · William [confirm_name]:** Who else would like to share their name and something they are thankful for?
 
 **H · Carla [S3]:** I'm Carla. I'm grateful my neighbor helped me carry groceries home when I hurt my ankle. It made the week easier.
 

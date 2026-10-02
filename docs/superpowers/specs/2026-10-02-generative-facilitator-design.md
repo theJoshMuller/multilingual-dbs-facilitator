@@ -21,3 +21,9 @@ The parallel worktree currently adds an assemblyai-proof mode, provider transpor
 ## Evidence
 
 Test controller decisions/rendering, identity evidence, text mode, manual Scripture, navigation/completion, cancellation and rollback, and both runtime entry points. Keep existing rules regressions explicit about mode. Run the offline suite and lint, request a harness-native code review, and test the combined AssemblyAI snapshot. No external LLM calls, real participant audio, deployment changes, or source edits in main are authorized by this implementation.
+
+## Combined opening invitation
+
+Josh's follow-up asks for the first question to work like the earlier welcome while inviting the person's name at the same time. Keep the opening LLM-generated; strengthen its instruction to welcome the group, ask each person to begin with their own name, and share thankfulness since the last meeting in one contribution. Supply the existing English/Spanish welcome only for the opening event as wording guidance. The first welcome already covers f.001; later canonical questions remain server-owned. Subsequent invitations request names and thankfulness together, with natural name confirmation and existing voice-evidence guards.
+
+Verify opening-only localized guidance in mocked requests and an injected combined contribution through name confirmation and continuation without repeating f.001. These checks verify request construction and controller mechanics, not real model compliance. Update the audit sample and restart only the isolated localhost8096 dev service.

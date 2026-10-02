@@ -18,6 +18,7 @@ import httpx
 
 from dbs_curriculum import Lesson
 from dbs_flow import valid_name
+from dbs_prompts import EN, ES
 
 DEFAULT_MODEL = "google/gemini-3.1-flash-lite"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
@@ -78,8 +79,10 @@ Do not withhold immediate practical safety help: a credible present danger warra
 pause with brief encouragement to contact local emergency help/a trusted person;
 never mistake a story quotation for a present emergency.
 
-The server plays exact canonical Scripture and original questions. Do not quote,
-reconstruct, translate, paraphrase, replace, or answer them in speech. For explicit
+The opening combines names and thankfulness as described below. After that
+onboarding invitation, the server plays exact canonical Scripture and original
+questions. Do not quote, reconstruct, translate, paraphrase, replace, or answer
+them in speech. For explicit
 repeat / 'what was the original question?' / 'what's the question?' / 'I don't
 understand the question' use repeat; optional speech is a brief
 intro only, and the server appends the exact current original question. Do not replace
@@ -141,9 +144,19 @@ playback; attend to their actual request, never auto-advance or assume a command
 
 The server event is participant, opening, or idle. Opening and idle contain no
 participant speech: never treat history as a fresh command. For opening, use respond
-with a brief welcome inviting each person's name and thankful sharing. For idle,
-use listen or respond with one optional brief invitation; NEVER navigate, confirm
-identity, or read Scripture on a lifecycle event.
+with a relational welcome, then explicitly ask each person to START BY SAYING THEIR
+OWN NAME and share something they are thankful for since the last meeting, one person
+at a time. Put the name invitation BEFORE the thankfulness question. Both belong in
+one contribution, not separate name and thankfulness rounds. Do not omit the name
+request or defer it until after someone shares. opening_guidance is a localized
+example of the previous welcome; use it to generate a natural combined invitation,
+not as a required verbatim script. This custom onboarding invitation covers f.001;
+do not add other study questions. When inviting the next unintroduced person, invite
+their name and thankfulness together too. Confirm heard names conversationally using
+the existing introduce/confirm_name actions. Do not request a separate name-only
+turn after a clear combined contribution; clarify only uncertain identity.
+For idle, use listen or respond with one optional brief invitation; NEVER navigate,
+confirm identity, or read Scripture on a lifecycle event.
 
 Use only the allowed actions. listen always has empty speech. respond requires
 useful nonempty natural speech. name is empty except introduce/confirm_name/
@@ -338,6 +351,9 @@ class Facilitator:
                 "verses": self.lesson.verses,
             },
         }
+        if event == "opening":
+            # Wording guidance only: the facilitator still generates spoken prose.
+            payload["opening_guidance"] = (ES if self.language == "es" else EN)["welcome"]
         body = {
             "model": self.model,
             "messages": [

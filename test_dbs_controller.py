@@ -50,6 +50,25 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.brain.decision = Decision('listen')
         self.assertEqual(await self.controller.accept('I noticed light.', speaker='S1'), [])
 
+    async def test_name_and_thankfulness_share_one_intro_before_next_question(self):
+        opening = "Welcome! Start with your name, then share something you are thankful for."
+        self.brain.decision = Decision('respond', speech=opening)
+        prompts = await self.controller.start()
+        self.assertEqual(self.controller.render(prompts[0]), opening)
+        self.assertEqual(self.controller.prompt_origin(prompts[0]), 'generated')
+        contribution = "I'm Ana. I'm thankful my sister is recovering."
+        self.brain.decision = Decision('introduce', name='Ana', speech='Ana, did I catch that right?')
+        await self.controller.accept(contribution, speaker='S1', identifiers=('opaque-1',))
+        self.assertEqual(self.brain.calls[-1][0], contribution)
+        self.assertEqual(self.controller.flow.pending.name, 'Ana')
+        self.assertEqual(self.controller.history[-2]['text'], contribution)
+        self.brain.decision = Decision('confirm_name', speech='Who else would like to share their name and thankfulness?')
+        await self.controller.accept("That's me.", speaker='S1')
+        self.assertEqual(self.controller.flow.roster[0].name, 'Ana')
+        prompts = self.controller.control('finish_enrollment')
+        self.assertEqual(prompts[-1].key, 'a.001')
+        self.assertFalse(any(prompt.key == 'f.001' for prompt in prompts))
+
     async def test_explicit_lifecycle_and_one_idle_per_lull(self):
         self.brain.decision = Decision('respond', speech='Welcome. What are you thankful for?')
         await self.controller.start()

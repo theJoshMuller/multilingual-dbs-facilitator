@@ -177,6 +177,22 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
             await self.brain.decide("", context(), event="invented")
         self.assertEqual(len(self.requests), requests)
 
+    async def test_opening_receives_localized_combined_intro_guidance_only_at_start(self):
+        from dbs_prompts import EN, ES
+        for language, prompts in (("en", EN), ("es", ES)):
+            with self.subTest(language=language), patch.object(self.brain, "language", language):
+                self.output("respond", speech="Offline generated opening.")
+                await self.brain.decide("", context(phase="introductions", index=0,
+                    current_question_key="f.001", current_question=lesson().questions["f.001"],
+                    roster=[], speaker=""), event="opening")
+                payload = json.loads(self.payload()["messages"][1]["content"])
+                self.assertEqual(payload.get("opening_guidance"), prompts["welcome"])
+                self.assertEqual(payload["context"]["current_question_key"], "f.001")
+                for event, text in (("idle", ""), ("participant", "Could we slow down?")):
+                    await self.brain.decide(text, context(), event=event)
+                    payload = json.loads(self.payload()["messages"][1]["content"])
+                    self.assertNotIn("opening_guidance", payload)
+
     async def test_public_defaults_and_explicit_model(self):
         self.assertEqual(self.brain.provider, "openrouter")
         self.assertEqual(self.brain.model, DEFAULT_MODEL)

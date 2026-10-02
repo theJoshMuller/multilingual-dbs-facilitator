@@ -79,7 +79,9 @@ allow the exact origin through `DBS_WEB_ORIGINS`; the server binds to loopback.
 
 ## How a session works
 
-Introductions combine names and thankfulness. Each person confirms their own
+The generated opening is prompted to invite each person to begin with their name
+and share what they are thankful for in the same contribution. It uses the earlier
+localized welcome as wording guidance. Each person confirms their own
 name naturally: “that's me,” “you got it,” or “así es.” A diarization label alone
 cannot bind a name; voice enrollment requires usable opaque recognition evidence
 and the same solo speaker's confirmation. The voice adapters collect evidence

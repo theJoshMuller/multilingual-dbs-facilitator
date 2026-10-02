@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,9 +56,10 @@ def validate_verses(verses: list[dict]) -> list[dict[str, str]]:
 
 
 def load_lesson(
-    code: str = "en", *, root: Path = DEFAULT_WAHA_ROOT,
+    code: str = "en", *, root: Path | None = None,
     waha_language: str = "", scripture_file: Path | None = None,
 ) -> Lesson:
+    root = root if root is not None else Path(os.getenv('WAHA_ROOT', str(DEFAULT_WAHA_ROOT)))
     language = resolve_language(root, code, waha_language)
     lesson = next(
         l for s in read_data(root, "sets") for l in s["lessons"]

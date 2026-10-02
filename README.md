@@ -2,14 +2,80 @@
 
 **Discover Scripture together, in your group's language.**
 
-A Waha-inspired system for group Discovery Bible Study and a **Gloo Hackathon**
-project. Gather around one microphone, choose a study language, and
-work through the passage together. The facilitator guides the questions and
-keeps the session moving at the group's pace.
+William guides a small group around one microphone through Waha's fellowship,
+Scripture, discovery, and application questions. This Gloo Hackathon prototype
+now combines AssemblyAI recognition, conversational facilitation, ElevenLabs
+v4 Turbo/Mark, and official YouVersion NIV in its default English browser mode.
+The original English/Spanish Speechmatics mode remains selectable. Mixed-language
+participant translation is still pending; the EN/TR proof tests recognition only.
 
-The heart of the app is discovery: read Scripture, listen to each other, and
-put what you discover into practice. Canonical Waha questions shape the study;
-the group brings the conversation.
+The default is **generative facilitation**: William generates brief procedural
+speech and understands natural requests. The server owns exact canonical
+questions, Scripture playback, identity evidence, and study position. Ordinary
+contributions usually receive silence. See the source-labeled
+[illustrative three-person session](SAMPLE_SESSION.md).
+
+## Combined English DBS
+
+This follow-on branch defaults to **English DBS · NIV** on the same browser mic
+and private WebSocket bridge. It uses one AssemblyAI Universal-3.6 Pro stream,
+ElevenLabs speech, Josh’s requested opening and the remaining original English Waha questions, and official server-side
+YouVersion NIV version 111 (New International Version 2011, publisher Biblica).
+Source verification happens before the billed stream opens. Each of the 25
+Genesis 1:1–25 verses is individually validated; no Waha Bible cache or generated
+verse is used by this mode. English participant contributions are not translated.
+
+William uses PR #1's configured **OpenRouter facilitator** by default; this no
+longer requires an active Codex session. Configure its existing secure server-side
+credential source with `DBS_OPENROUTER_ENV_FILE` and choose `DBS_LLM_MODEL` if needed.
+No provider key enters browser JavaScript. Clear introductions are recorded silently,
+uncertain names get a brief clarification, and explicit natural readiness advances
+the group. One optional nudge follows seven seconds of silence; silence never advances.
+
+The exact Josh-authored welcome plays once automatically without a model call.
+All remaining Waha questions and the official NIV passage are read unchanged.
+English contributions are never translated. Pause interrupts playback; Resume
+preserves the remaining prompts. Voice wake interruption is not enabled for AssemblyAI.
+Self-reported names are distinct from cautious same-label voice bindings. Human
+name recognition remains **UNVERIFIED**; PENDING, short, overlapping and revised
+turns cannot establish identity.
+
+For isolated verification, set `DBS_ENGLISH_FACILITATOR=codex-session` explicitly.
+Only that test mode requires the active Codex session and its authenticated
+loopback queue. Offline tests inject decisions and make no external model calls.
+Arrange participant consent before startup, outside the agent UX.
+
+Keep `ASSEMBLYAI_API_KEY` only in the worktree’s ignored owner-only `.env`. Set
+`WAHA_ROOT` and `YVP_SERVER_FILE` to the existing curriculum/API integration. Its
+YVP key stays in its own project. Existing ElevenLabs credentials are reused in
+place via `ELEVENLABS_ENV_FILE`; no key is copied into JavaScript or publication.
+Start `.venv/bin/python -E dbs_web.py` from this worktree. The current local test
+combined test address is <http://127.0.0.1:8097/dbs/>. Override the port and
+origins together using `DBS_WEB_PORT` and `DBS_WEB_ORIGINS`. See
+[English test evidence](docs/assemblyai-english-handoff.md) for limitations.
+
+## AssemblyAI ASR spike
+
+The separate ASR proof remains selectable as **One mic · EN/TR ASR proof**. This mode only
+transcribes: William does not speak, enroll names, translate or read Scripture.
+One Universal-3.6 Pro provider stream receives the existing 16 kHz mono PCM
+microphone feed through the server. Vendor speaker labels and language codes
+are shown separately; human names remain unverified.
+
+For this mode, use a secure local editor to add `ASSEMBLYAI_API_KEY` to the
+worktree's Git-ignored `.env`, then set owner-only permissions with `chmod 600 .env`.
+The key is never supplied to browser JavaScript. No Speechmatics/ElevenLabs key
+is needed for this proof. Start `dbs_web.py`, choose the proof mode, and stop
+within three minutes; connected time is billed by the provider. Arrange consent
+with everyone present before testing. Speech stays in session memory.
+
+The original single-language study remains selectable. Its setup below is the
+legacy Waha/Speechmatics path; it does not yet use official YouVersion text.
+Optional source-validation groundwork requires `WAHA_ROOT` and
+`YVP_SERVER_FILE=/absolute/path/to/youversion_platform/server.py`. Read that
+project's `agents.md` before API use; its key stays in that project's `.env`.
+See [the spike handoff](docs/assemblyai-spike-handoff.md) for real versus mocked
+evidence and the remaining identity, switching and echo checks.
 
 ## The app
 
@@ -18,15 +84,15 @@ session. English and Spanish are the supported study languages.
 
 | Capability | Implementation |
 | --- | --- |
-| Group introductions | Names and thankfulness, with each person confirming their own name |
-| Speaker recognition | Speechmatics transcription, diarization, and session-only voice identifiers |
+| Group introductions | Names and thankfulness; clarify uncertain names naturally |
+| Recognition | AssemblyAI in the default English mode; Speechmatics in the original mode |
 | Study flow | Canonical Waha questions and Genesis 1:1–25 |
 | Spoken facilitation | ElevenLabs v4 Turbo with Mark — Natural Conversations |
-| Group controls | Confirm, advance, repeat, read the passage, pause, resume, and stop |
+| Group controls | Previous, next, repeat, read the passage, pause, resume, and stop |
 | Browser experience | Microphone controls, roster, current question, transcript, and session diagnostics |
 | Text rehearsal | Practice the same study flow without a microphone or voice enrollment |
 
-The default DBS flow uses deterministic controls. Questions about the passage
+Generative facilitation is the default; explicit rules mode retains deterministic controls. Questions about the passage
 are redirected to Scripture and the group; the facilitator does not generate
 Bible answers. The CLI provides additional language configurations, with the
 requirements described below.
@@ -62,31 +128,35 @@ Clone and install:
 ```bash
 git clone https://github.com/theJoshMuller/multilingual-dbs-facilitator.git
 cd multilingual-dbs-facilitator
-
 python3.13 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-Create a local `.env` file:
+Create an ignored local `.env` with your own credentials:
 
 ```dotenv
+WAHA_ROOT=/absolute/path/to/waha-app
 SPEECHMATICS_API_KEY=your-speechmatics-key
 ELEVENLABS_API_KEY=your-elevenlabs-key
-WAHA_ROOT=/absolute/path/to/waha-app
-DBS_LLM_PROVIDER=rules
+OPENROUTER_API_KEY=your-openrouter-key
+DBS_FACILITATION_MODE=generative
+DBS_LLM_MODEL=google/gemini-3.1-flash-lite
 ```
 
-The app loads `.env.local` and `.env`; both are ignored by Git. Without
-`WAHA_ROOT`, it looks for a sibling `../waha-app` directory.
-
-Start the server:
+The application loads `.env.local` and `.env`. `WAHA_ROOT` defaults to the sibling
+`../waha-app`. Generative mode uses OpenRouter and fails explicitly on missing
+configuration or provider errors; it does not silently switch to scripted prose.
+The key can also come from the environment or a static literal assignment in
+`DBS_OPENROUTER_ENV_FILE` (default `~/.config/shell/profile`); that file is parsed,
+never executed. Keep credentials out of source control and browser JavaScript.
 
 ```bash
+# Browser
 .venv/bin/python dbs_web.py
-```
 
-Open [localhost:8094/dbs/](http://localhost:8094/dbs/), select English or Spanish,
-confirm that everyone agrees to the voice session, and start together.
+For the legacy mode, open [localhost:8094/dbs/](http://localhost:8094/dbs/) and
+select English or Spanish. Arrange everyone's consent before startup, outside
+the app, then start together.
 Use headphones or a tested echo-cancelling speakerphone, speak one person at a
 time, and keep the page in the foreground on a phone.
 
@@ -107,144 +177,124 @@ Then download the local VAD assets and choose a language:
 
 ```bash
 .venv/bin/python dbs_agent.py download-files
-
-# English: canonical Waha questions and Genesis 1:1–25, NLT.
 .venv/bin/python dbs_agent.py console --log-level info
-
-# Spanish: canonical Waha questions, with participant-read NVI by default.
 DBS_LANGUAGE=es .venv/bin/python dbs_agent.py console --log-level info
-```
 
-Stop with **Ctrl-C**. English and Spanish rules mode requires no model API key.
-
-### Text rehearsal
-
-Practice introductions and study controls without microphone access, voice
-enrollment, or speech-provider calls:
-
-```bash
+# Text rehearsal: no microphone, speech recognition, or speech synthesis
 .venv/bin/python dbs_agent.py rehearse
 DBS_LANGUAGE=es .venv/bin/python dbs_agent.py rehearse
 ```
 
-Text rehearsal still requires the canonical lesson assets. Use **Ctrl-D** to exit.
+Text rehearsal still uses the configured model in generative mode and requires
+canonical assets. Exit with Ctrl-D; console voice sessions stop with Ctrl-C.
+To use the deterministic fallback explicitly, set
+`DBS_FACILITATION_MODE=rules DBS_LLM_PROVIDER=rules`. That combination needs no
+model credential. `DBS_LLM_PROVIDER` retains its separate optional intent-parser
+meaning in rules mode; it does not select the generative facilitator.
 
-## A session together
+Open [localhost:8094/dbs/](http://localhost:8094/dbs/) and select English or Spanish.
+The human organizer obtains everyone's consent **before startup, outside the
+application**. The agent UX has no consent checkbox or dialogue gate. Browser microphone
+permission is separate. Provider disclosures remain visible before startup.
 
-1. Each person says their name and something they are thankful for since the
-   last meeting. For example: “My name is Josh, and I'm thankful for …” or
-   “Me llamo Kami y estoy agradecida por …”.
-2. That same person confirms their own name with “Yes” or “Sí”. Voice enrollment
-   needs a real Speechmatics identifier and at least five seconds of recognized
-   speech; about 20 seconds per introduction works well.
-3. Once everyone has shared, finish introductions and confirm the group roster.
-   Mentioned friends do not count as participants.
-4. Read the passage and discuss each question together. The facilitator stays
-   quiet during ordinary discussion.
-5. Ask to advance when the group is ready, then confirm. Silence does not
-   advance the lesson.
+Use headphones or a tested echo-cancelling speakerphone and speak one person at a
+time. Keep the page in the foreground on a phone. The browser uses WebSocket
+audio directly, without a LiveKit room server. For another device, use HTTPS and
+allow the exact origin through `DBS_WEB_ORIGINS`; the server binds to loopback.
 
-Use **`William` as the voice command prefix**. Prefix the commands below with
-“William,”; confirmations use “Yes” / “No” or “Sí” / “No”.
+## How a session works
 
-| Action | English | Spanish |
-| --- | --- | --- |
-| Finish introductions | everyone is here | ya estamos todos |
-| Advance | next question | siguiente pregunta |
-| Repeat | repeat | repite |
-| Read the passage | read the passage again | lee el pasaje otra vez |
-| Pause | pause | pausa |
-| Resume | resume | continúa |
-| End | stop | detente |
+The generated opening is prompted to invite everyone to share their name and thankfulness in one
+contribution, then tell William when everyone has spoken and the group is ready for
+the next question. A clear self-introduction registers the person immediately;
+there is no compulsory per-person name confirmation. Successful introductions are
+silent: the server suppresses any generated acknowledgement or immediate invitation,
+so the next person can speak. Only the seven-second silence event requests a nudge.
+Uncertain names use a brief
+clarification that only the same solo speaker can confirm or correct. A diarization
+label alone cannot bind a name: voice registration still requires usable opaque
+recognition evidence from sufficiently long introductions (at least five seconds).
+An explicit self-correction of a registered name requires matching voice evidence.
+Text rehearsal deliberately bypasses voice enrollment and creates no voice profile.
 
-For example: “William, next question” or “William, siguiente pregunta”.
-The browser also provides buttons for session controls.
+The LLM interprets readiness from the current turn and conversation history:
+a clear request to begin or continue can select `finish_enrollment`, including a
+natural reply to William's readiness invitation. Participants do not need to state
+that everyone has shared or use particular words. The server then advances to the
+next canonical question. If the final person introduces themselves and gives that signal in the same contribution,
+the decision can include their own name so they are recorded before advancing.
+Silence, speaker count, or a list of other people's names does not authorize
+continuing or establish attendance. A participant's readiness request authorizes
+continuing with the registered group; it does not prove that everyone has shared.
+Unresolved name clarification blocks completion.
 
-## Languages and Scripture
+Ask William directly to move on, go back, repeat the question, read the passage,
+pause, resume, or stop. In generative mode “William, let's move on” advances
+without a separate yes gate. Buttons execute known controls without a model
+request. Rules mode retains its explicit commands and confirmation behavior.
+In generative mode, about seven seconds of silence requests one brief generated
+nudge during introductions or the study. It does not repeat until new participant
+input or a navigation/resume control starts another lull. Pause, active speech,
+queued input and playback suppress the timer; stale queued nudges are discarded.
+The spoken nudge also needs model and TTS time. Rules mode keeps its 25-second
+timer. Silence never advances the lesson. William answers group/procedure questions, while Bible-content
+questions are directed back to the complete current source question.
 
-| Study language | Availability | Passage |
-| --- | --- | --- |
-| English | Tested controls and UI; available in browser and CLI | Genesis 1:1–25, NLT, from the canonical cache or an authorized file |
-| Spanish | Tested controls and UI; available in browser and CLI | Genesis 1:1–25, NVI; a participant reads unless an authorized file is supplied |
-| Other languages | CLI configuration available; requires integration validation | Requires matching canonical questions, Scripture, and speech support |
+Browser audio is half duplex: microphone input is suppressed during William's
+playback. **Use the Pause button during speech. Voice wake interruption during
+browser playback is not implemented.** Resume replays interrupted browser
+prompts; console resume replays its interrupted batch. Previous changes the
+study position directly. The final closing remains interruptible until playback
+succeeds and is acknowledged; provider or playback failure does not complete it.
 
-### Canonical Waha content
+## Source content and languages
 
-Lesson `01.001.001` uses Waha's questions `f.001`, `f.002`, `f.003`, `f.008`,
-and `a.001` through `a.007`. The introductions combine names and
-thankfulness in place of the spoken `f.001` welcome; the remaining questions
-are exact Waha spoken-question strings.
+Lesson `01.001.001` uses `f.001`, `f.002`, `f.003`, `f.008`, Genesis 1:1–25, and
+`a.001` through `a.007`. The generated opening covers names and thankfulness in
+place of speaking `f.001`; subsequent canonical questions play verbatim.
+[The extracted reference](research/canonical-01.001.001.json) records the exact
+questions, passage, and provenance. [Facilitation research](research/dmc-facilitation-evidence.md)
+records the source guidance.
 
-The extracted reference is in
-[research/canonical-01.001.001.json](research/canonical-01.001.001.json).
-[Facilitation research](research/dmc-facilitation-evidence.md) records the
-source guidance. Curriculum and Scripture are read from source assets, never
-reconstructed or translated by a model.
+English reads NLT from the local Waha cache or an authorized matching file.
+Spanish uses NVI: without an authorized local passage, William asks a participant
+to read and waits for explicit continuation before retelling. No model supplies,
+reconstructs, or translates Scripture. The current loader uses local assets;
+its existence is not evidence of YouVersion API integration.
 
-### Spanish NVI
+`SCRIPTURE_FILE` is UTF-8 JSON containing `bibleTextId`, `languageId`, and `verses`:
+exactly 25 ordered objects from `GEN.1.1` through `GEN.1.25`, each with `verseId`
+and nonempty `text`. Spanish requires `NVI` / `spa`; an optional `copyright`
+provides attribution. Mismatched editions and incomplete passages are rejected.
+Keep restricted exports private.
 
-Spanish uses **NVI**. When an authorized local NVI passage is unavailable, the
-facilitator asks a participant to read and waits before the retelling question.
+The browser and generative facilitator support `en` and `es`. Other CLI language
+configurations remain rules-mode experiments requiring matching curriculum,
+Scripture, interface copy, recognition, and speech output. Provider catalogs do
+not establish working group language combinations. `list-languages` lists the
+recognition configuration; it is not a mixed-language feature.
 
-To enable spoken NVI reading, set `SCRIPTURE_FILE` to an authorized UTF-8 JSON
-file with:
+## Configuration and engine roles
 
-- `bibleTextId: "NVI"` and `languageId: "spa"`.
-- `verses`: exactly 25 objects, ordered from `GEN.1.1` through `GEN.1.25`,
-  each containing `verseId` and nonempty `text`.
-- An optional `copyright` string for attribution.
-
-Incorrect versions, missing verses, and changed ordering are rejected.
-Keep private or restricted Bible exports out of the repository.
-
-### Broader language configuration
-
-```bash
-.venv/bin/python dbs_agent.py list-languages
-```
-
-The captured Speechmatics catalog contains 56 individual language codes and
-five combined-language packs. This is recognition coverage, not a claim that
-all of those languages have a working study experience.
-
-The CLI can select recognition with `STT_LANGUAGE` independently of the
-facilitation locale `DBS_LANGUAGE`. Realtime enrollment does not use batch
-`auto` or `multi` modes; provider account entitlements still apply.
-
-An additional locale needs canonical Waha spoken questions, matching Scripture,
-ElevenLabs v4 Turbo speech support, and a model parser configured
-with `DBS_LLM_PROVIDER=ollama` or `openrouter`. The configured TTS language set
-contains 85 model-API-listed codes, not 85 validated study languages. Missing
-assets or unsupported speech output fail at startup.
-
-Optional model parsers return validated `{intent, name}` objects. A reviewed
-`DBS_PROMPTS_FILE` can supply localized UI copy with the keys and placeholders
-from `dbs_prompts.EN`; otherwise these routes translate interface
-copy at startup. They do not translate curriculum or Scripture. Participant
-turns are sent to the selected model provider.
-
-The browser currently accepts English and Spanish only. Additional CLI locales
-and optional model routes have not been live-validated. Immediate stop/pause
-detection is English/Spanish; **Ctrl-C** remains available in the CLI.
-
-## Configuration
-
-| Variable | Purpose |
+| Setting | Purpose |
 | --- | --- |
-| `WAHA_ROOT` | Waha checkout containing canonical curriculum and Bible assets |
-| `DBS_LANGUAGE` | CLI facilitation locale; defaults to `en` |
-| `WAHA_LANGUAGE` | Explicit Waha locale when language matching is ambiguous |
+| `DBS_ENGLISH_FACILITATOR` | `configured` by default; `codex-session` for isolated native verification |
+| `ASSEMBLYAI_API_KEY` / `YVP_SERVER_FILE` | Worktree-only recognition key and read-in-place YouVersion integration path |
+| `DBS_OPENROUTER_ENV_FILE` | Existing secure server-side model credential source; never copy keys into JS |
+| `DBS_FACILITATION_MODE` | `generative` by default; explicit `rules` fallback |
+| `OPENROUTER_API_KEY` / `DBS_LLM_MODEL` | Generative model credentials and model selection |
+| `DBS_LLM_PROVIDER` | Rules-mode intent parser: `rules`, optionally `ollama` or `openrouter` |
+| `DBS_LANGUAGE` / `WAHA_LANGUAGE` | CLI locale and explicit Waha locale |
 | `STT_LANGUAGE` / `STT_DOMAIN` | CLI recognition language and optional domain |
-| `SCRIPTURE_FILE` | Authorized, version-matched passage JSON |
-| `SPEECHMATICS_API_KEY` | Speech recognition and speaker identification |
-| `ELEVENLABS_API_KEY` / `ELEVEN_API_KEY` | Speech synthesis |
-| `ELEVENLABS_ENV_FILE` | Read an existing ElevenLabs key file |
+| `WAHA_ROOT` / `SCRIPTURE_FILE` | Canonical curriculum and authorized passage |
+| `DBS_MAX_PEOPLE` / `DBS_MAX_SPEAKERS` | Participant and recognition ceilings; defaults 7 / 10 |
 | `ELEVENLABS_VOICE_ID` / `ELEVENLABS_VOICE_ID_ES` | Override the default Mark voice globally or for Spanish |
-| `DBS_MAX_PEOPLE` / `DBS_MAX_SPEAKERS` | Group size and recognition ceiling; defaults are 7 and 10 |
-| `DBS_LLM_PROVIDER` | CLI parser: `rules` by default; optional `ollama` or `openrouter` |
-| `DBS_PROMPTS_FILE` | Reviewed localized interface strings |
-| `DBS_WEB_PORT` | Browser server port; defaults to `8094` |
-| `DBS_WEB_ORIGINS` | Exact browser origins allowed to connect |
+| `ELEVENLABS_ENV_FILE` / `ELEVEN_API_KEY` | Alternative ElevenLabs credential sources |
+| `DBS_WEB_PORT` / `DBS_WEB_ORIGINS` | Port (default 8094) and exact allowed origins |
+
+AssemblyAI supplies revisable labels and language codes in the English mode.
+Speechmatics supplies opaque voice evidence only in the original mode.
+ElevenLabs reads generated text unchanged and canonical text from the server.
 
 Speech synthesis defaults to `eleven_v4_turbo` and Mark — Natural Conversations
 (`UgBBYS2sOqTuMpoF3BR0`) using HTTP Text-to-Dialogue streaming and 16 kHz PCM.
@@ -256,57 +306,53 @@ English/Spanish/Turkish output samples; that is not a human-group ASR or
 end-to-end study validation. Retained Flash language reports describe the earlier
 baseline, not the current default or a newly qualified support list.
 
-## Session privacy and operating requirements
+| File | Responsibility |
+| --- | --- |
+| [dbs_controller.py](dbs_controller.py) | Shared start/idle/accept/control, rendering, history, snapshots, completion acknowledgment, cleanup |
+| [dbs_facilitator.py](dbs_facilitator.py) | Bounded OpenRouter requests and strict Decision validation |
+| [dbs_conversation.py](dbs_conversation.py) | Generative flow's identity checks, navigation, manual passage gate |
+| [dbs_flow.py](dbs_flow.py) / [dbs_intents.py](dbs_intents.py) | Deterministic fallback flow and intent parsing |
+| [dbs_curriculum.py](dbs_curriculum.py) | Exact Waha questions and validated local Scripture |
+| [dbs_agent.py](dbs_agent.py) / [dbs_web.py](dbs_web.py) | Console/text and browser recognition/playback adapters |
+| [dbs_tts.py](dbs_tts.py) / [web/](web/) | ElevenLabs output and browser interface |
 
-Get everyone's agreement before opening the microphone. Speechmatics receives
-microphone speech for transcription and speaker identification; ElevenLabs
-receives spoken text, including names. Normal provider logging applies.
-Optional model routes also receive participant turns.
+The controller has no recognition/runtime imports. Async decisions serialize;
+local controls invalidate pending work immediately. Snapshots restore flow and
+history together. Runtimes call `complete_playback(prompts)` only after successful
+output, and `close()` clears session state and closes the facilitator client.
 
-DBS speaker identifiers and roster names are session-only. The DBS flow does
-not persist `.speaker_profiles.json` or record local audio. Browser transcripts
-and diagnostics stay in page memory; console logs may contain transcripts.
-Restart introductions after an STT disconnect because temporary speaker labels
-can change.
+## Privacy and evidence
 
-English and Spanish are the live-tested languages. Room-level speaker accuracy
-and echo handling have not been validated in a human group trial. Rules mode
-expects explicit commands. Stop/pause preemption follows finalized recognition rather
-than happening instantly. Resuming an interrupted console reading replays its
-prompt batch. The limited danger-phrase handling is not emergency monitoring.
+Speechmatics receives microphone speech; OpenRouter receives participant turns,
+registered names, pending identity, study context, and the latest 16 user/assistant
+history entries; ElevenLabs receives spoken text, including names. Normal provider policies
+apply. Model context is bounded, not confidential from the provider.
+
+The roster, opaque voice identifiers, and bounded controller history are
+session-only and cleared on stop/close. The flow does not persist voice profiles
+or record local audio. Browser transcript/diagnostic state stays in page memory;
+console logging may contain transcripts. Restart introductions after recognition
+disconnects because temporary labels can change.
+
+Facilitation instructions tell the model to avoid theological answers, routine
+praise, and judgments about interpretations. Strict schema checks, exact source
+playback, and evidence checks constrain actions and grounding claims; **they do
+not prove that every generated sentence respects those semantic instructions**.
+The sample and unit tests use injected decisions/mock transports, not a real
+model transcript or a consenting human-group trial. Room speaker accuracy, echo,
+and end-to-end latency still need real group validation. Limited danger handling
+is not emergency monitoring.
 
 ## Development
-
-Run the local regression suite and lint checks:
 
 ```bash
 .venv/bin/python -m unittest -v
 uvx ruff check dbs_*.py test_dbs*.py smoke_dbs.py
+node --test tests/test_dbs_client.cjs
+node --check web/app.js
 ```
 
-Optional voice smoke checks make real speech-provider calls using synthesized
-test speech:
-
-```bash
-.venv/bin/python smoke_dbs.py --language en
-.venv/bin/python smoke_dbs.py --language es
-```
-
-Those checks exercise real voice identification and controller confirmations.
-They do not establish multi-person recognition accuracy or acoustic interruption
-accuracy in a room.
-
-| File | Responsibility |
-| --- | --- |
-| [dbs_web.py](dbs_web.py) | Browser WebSocket transport and session controls |
-| [web/](web/) | Waha-inspired browser interface |
-| [dbs_agent.py](dbs_agent.py) | Console runtime and shared study controller |
-| [dbs_flow.py](dbs_flow.py) | Study phases, confirmations, and roster |
-| [dbs_curriculum.py](dbs_curriculum.py) | Canonical questions and validated Scripture |
-| [dbs_intents.py](dbs_intents.py) | Deterministic and optional model-assisted controls |
-| [dbs_prompts.py](dbs_prompts.py) | English and Spanish interface copy |
-| [dbs_tts.py](dbs_tts.py) | ElevenLabs speech synthesis |
-| [ops/dbs-web.service](ops/dbs-web.service) | Example systemd service; adjust local paths and origins |
-
-The legacy general-purpose `agent.py` runtime has its own
-[legacy setup guide](docs/legacy-voice-agent.md).
+The regression suite is offline. `smoke_dbs.py --language en` (or `es`) is a
+separate integration check that makes real speech-provider calls; it cannot
+establish human-group recognition accuracy. The legacy general-purpose runtime
+has a separate [setup guide](docs/legacy-voice-agent.md).

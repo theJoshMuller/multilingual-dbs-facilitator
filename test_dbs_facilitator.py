@@ -20,8 +20,15 @@ import httpx
 
 from dbs_curriculum import Lesson
 from dbs_facilitator import (
-    ACTIONS, DEFAULT_MODEL, INSTRUCTIONS, OPENROUTER_URL, SCHEMA,
-    Decision, Facilitator, FacilitatorConfigurationError, FacilitatorError,
+    ACTIONS,
+    DEFAULT_MODEL,
+    INSTRUCTIONS,
+    OPENROUTER_URL,
+    SCHEMA,
+    Decision,
+    Facilitator,
+    FacilitatorConfigurationError,
+    FacilitatorError,
     openrouter_api_key,
 )
 
@@ -156,6 +163,36 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
     def payload(self):
         return json.loads(self.requests[-1].content)
 
+    async def test_explicit_lifecycle_events_are_not_participant_commands(self):
+        self.output("respond", speech="Welcome. What are you thankful for?")
+        for event in ("opening", "idle"):
+            await self.brain.decide("", context(), event=event)
+            data = json.loads(self.payload()["messages"][1]["content"])
+            self.assertEqual(data["event"], event)
+            self.assertEqual(data["text"], "")
+        requests = len(self.requests)
+        with self.assertRaises(FacilitatorError):
+            await self.brain.decide("next", context(), event="opening")
+        with self.assertRaises(FacilitatorError):
+            await self.brain.decide("", context(), event="invented")
+        self.assertEqual(len(self.requests), requests)
+
+    async def test_opening_receives_localized_combined_intro_guidance_only_at_start(self):
+        from dbs_prompts import EN, ES
+        for language, prompts in (("en", EN), ("es", ES)):
+            with self.subTest(language=language), patch.object(self.brain, "language", language):
+                self.output("respond", speech="Offline generated opening.")
+                await self.brain.decide("", context(phase="introductions", index=0,
+                    current_question_key="f.001", current_question=lesson().questions["f.001"],
+                    roster=[], speaker=""), event="opening")
+                payload = json.loads(self.payload()["messages"][1]["content"])
+                self.assertEqual(payload.get("opening_guidance"), prompts["group_welcome"])
+                self.assertEqual(payload["context"]["current_question_key"], "f.001")
+                for event, text in (("idle", ""), ("participant", "Could we slow down?")):
+                    await self.brain.decide(text, context(), event=event)
+                    payload = json.loads(self.payload()["messages"][1]["content"])
+                    self.assertNotIn("opening_guidance", payload)
+
     async def test_public_defaults_and_explicit_model(self):
         self.assertEqual(self.brain.provider, "openrouter")
         self.assertEqual(self.brain.model, DEFAULT_MODEL)
@@ -172,7 +209,7 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(FacilitatorConfigurationError):
             Facilitator("fr", lesson())
         self.assertEqual(set(ACTIONS), {
-            "listen", "respond", "introduce", "confirm_name", "reject_name", "finish_enrollment",
+            "listen", "respond", "introduce", "clarify_name", "confirm_name", "reject_name", "finish_enrollment",
             "next", "previous", "repeat", "read_scripture", "pause", "resume", "stop", "grounding_challenge",
         })
 
@@ -221,6 +258,46 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("no\nseparate yes gates", INSTRUCTIONS)
         self.assertIn("Bible-content or interpretation question directed to William, use repeat", INSTRUCTIONS)
 
+    async def test_contextual_readiness_reaches_llm_with_history_before_transition(self):
+        from dbs_controller import ConversationController
+        # These are injected decisions, not evidence of live semantic accuracy.
+        for readiness in ("Let's begin.", "We can get going now.", "Adelante, empecemos."):
+            with self.subTest(readiness=readiness):
+                controller = ConversationController(lesson(), facilitator=self.brain)
+                self.output("introduce", name="Ana")
+                await controller.accept("I'm Ana, thankful for my family.",
+                                        speaker="S1", identifiers=("fixture-evidence",))
+                invitation = "Anyone else, or is the group ready to continue?"
+                self.output("respond", speech=invitation)
+                await controller.idle()
+                requests = len(self.requests)
+                self.output("finish_enrollment", speech="Let's hear how everyone is doing.")
+                prompts = await controller.accept(readiness, speaker="S1")
+                self.assertEqual(len(self.requests), requests + 1)
+                data = json.loads(self.payload()["messages"][1]["content"])
+                self.assertEqual(data["text"], readiness)
+                self.assertEqual(data["event"], "participant")
+                self.assertEqual(data["context"]["phase"], "introductions")
+                self.assertEqual(data["context"]["roster"], [{"name": "Ana", "speaker": "S1"}])
+                self.assertEqual(data["context"]["history"][-1],
+                                 {"role": "assistant", "text": invitation})
+                self.assertEqual(controller.last_decision.action, "finish_enrollment")
+                self.assertEqual(controller.flow.phase, "lesson")
+                self.assertEqual(prompts[-1].key, "a.001")
+                self.assertEqual(controller.render(prompts[-1]), lesson().questions["a.001"])
+                self.assertFalse(any(p.key == "f.001" for p in prompts))
+
+                # An incidental quotation still goes to the model; it is not a
+                # local phrase trigger that navigates regardless of the decision.
+                position = controller.flow.index
+                requests = len(self.requests)
+                self.output("listen")
+                quoted = 'My colleague said "Let\'s begin" before our meeting.'
+                self.assertEqual(await controller.accept(quoted, speaker="S1"), [])
+                self.assertEqual(len(self.requests), requests + 1)
+                self.assertEqual(json.loads(self.payload()["messages"][1]["content"])["text"], quoted)
+                self.assertEqual(controller.flow.index, position)
+
     async def test_introduce_and_reject_name_contract(self):
         self.output("introduce", name="Ana María", speech="Ana María—did I catch that right?")
         self.assertEqual((await self.brain.decide("Soy Ana María.", context(phase="introductions"))).name, "Ana María")
@@ -267,7 +344,7 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("vulnerable disclosures", INSTRUCTIONS)
 
     async def test_missing_or_invented_grounding_suppresses_all_speech(self):
-        base = dict(name="Ana", verse_id="GEN.1.1", quote="the story describes light", speech="Ana, where did you hear that in the story?")
+        base = {"name": "Ana", "verse_id": "GEN.1.1", "quote": "the story describes light", "speech": "Ana, where did you hear that in the story?"}
         for changes in ({"quote": "invented text"}, {"quote": ""}, {"quote": " "},
                         {"verse_id": "GEN.99.1"}, {"quote": "the story describes water"},
                         {"quote": "The story describes light"}, {"name": "Ben"},
@@ -348,6 +425,19 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
+
+    async def test_optional_name_clarification_and_final_self_intro_contract(self):
+        self.output("clarify_name", name="Ann", speech="Ann, did I hear that correctly?")
+        decision = await self.brain.decide("My name is Ann", context(phase="introductions"))
+        self.assertEqual(decision.action, "clarify_name")
+        self.output("finish_enrollment", name="Carla", speech="Let us continue.")
+        decision = await self.brain.decide("I'm Carla, I'm thankful for friends. That's everyone; next question.",
+                                         context(phase="introductions"))
+        self.assertEqual(decision.name, "Carla")
+        for invalid in ("S2", " Carla "):
+            self.output("finish_enrollment", name=invalid)
+            with self.assertRaises(FacilitatorError):
+                await self.brain.decide("Everyone is ready", context(phase="introductions"))
 
 
 if __name__ == "__main__":

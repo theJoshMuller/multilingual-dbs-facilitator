@@ -20,15 +20,15 @@
     <section class="panel setup" aria-labelledby="session-heading">
       <div class="section-heading"><h2 id="session-heading">Let’s gather</h2><span id="connection" class="pill">Offline</span></div>
       <div class="setup-layout">
-        <div><label class="field-label" for="language">Study language</label><select id="language"><option value="en">English · NLT</option><option value="es">Español · NVI</option></select><p id="language-note" class="muted small">Genesis 1:1–25 · English NLT passage.</p></div>
+        <div><label class="field-label" for="mode">Session mode</label><select id="mode"><option value="assemblyai-english" selected>English DBS · NIV</option><option value="assemblyai-proof">One mic · EN/TR ASR proof</option><option value="study">Original single-language study</option></select><label class="field-label" for="language">Study language</label><select id="language"><option value="en">English · NIV</option><option value="es">Español · NVI</option></select><p id="language-note" class="muted small">One microphone · English and Turkish.</p></div>
         <div class="consent-box">
-          <label class="consent"><input id="consent" type="checkbox"><span>Everyone present agrees to this voice session.</span></label>
-          <p class="small muted">Microphone speech goes to <strong>Speechmatics</strong> for transcription and session-only speaker identification. Participant transcripts, names, and recent conversation context go to <strong>OpenRouter and its model provider</strong> for facilitation. Spoken output, including names, goes to <strong>ElevenLabs</strong>. Normal provider logging applies; this is not zero-retention. This app does not record audio to server disk. On-page transcript and debug history use memory only, with no browser storage or analytics.</p>
+          <p id="provider-description" class="small muted">Microphone speech goes to AssemblyAI for transcription and speaker labels. Human identity is UNVERIFIED. Speech stays in page/server memory; this app does not save audio or transcripts automatically. Normal provider retention applies. This proof has no translation or spoken facilitation.</p>
         </div>
       </div>
+      <p id="proof-notice" class="notice warning">ASR PROOF · HUMAN IDENTITY UNVERIFIED. Speaker labels may change. A turn’s language code does not identify a person or every phrase in a code-switched sentence. Three-minute limit; stop promptly after testing.</p>
       <p class="usage-note">Use headphones and speak one person at a time. On your phone, keep this page in the foreground and the screen awake.</p>
       <div class="session-actions"><button id="start" class="primary" disabled>Start together</button><button id="mute" aria-pressed="false" disabled>Mute mic</button><button id="stop" class="danger" disabled>Stop & release mic</button></div>
-      <p id="status-message" class="status-message" role="status" aria-live="polite">Agree above, then start. The microphone is off.</p>
+      <p id="status-message" class="status-message" role="status" aria-live="polite">Choose a language, then start. The microphone is off.</p>
     </section>
     <div class="study-grid">
       <section class="panel prompt-panel" aria-labelledby="prompt-heading">
@@ -43,7 +43,7 @@
         <details class="guide"><summary>Voice commands <span id="guide-locale">EN</span></summary><div id="quick-guide"></div></details>
         <div class="state-details"><span>Phase <strong id="phase">Not started</strong></span><span>Lesson <strong id="lesson-step">—</strong></span><span>Passage <strong id="bible">—</strong></span></div>
       </section>
-      <section class="panel" aria-labelledby="roster-heading"><div class="section-heading"><h2 id="roster-heading">Around the table</h2><span id="roster-count" class="pill">0 people</span></div><p class="small muted">Introduce yourselves in your own words. Each person can confirm or correct their own name aloud.</p><div id="roster" class="roster"><p class="empty">There’s a place for everyone.</p></div><p class="small muted privacy-note">Temporary speaker labels only. Private voice identifiers never appear in debug history.</p></section>
+      <section class="panel" aria-labelledby="roster-heading"><div class="section-heading"><h2 id="roster-heading">Around the table</h2><span id="roster-count" class="pill">0 people</span></div><p class="small muted">Introduce yourselves in your own words. Clarify your own name if William asks. When everyone has shared, tell him the group is ready to continue.</p><div id="roster" class="roster"><p class="empty">There’s a place for everyone.</p></div><p class="small muted privacy-note">Temporary speaker labels only. Private voice identifiers never appear in debug history.</p></section>
     </div>
     <div class="debug-heading"><div><p class="eyebrow">UNDER THE HOOD</p><h2>Follow the conversation</h2></div><span class="small muted">Session-only diagnostics</span></div>
     <section class="panel monitor" aria-labelledby="monitor-heading">
@@ -53,7 +53,7 @@
       <div class="wave-container"><canvas id="waveform" width="900" height="100" aria-label="Local microphone waveform"></canvas><div class="wave-label"><span id="mic-label">MIC OFF</span><span id="level-label">−∞ dBFS</span></div></div>
       <div class="meter" role="meter" aria-label="Microphone level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="level-meter"><div id="level-fill"></div></div>
       <div class="monitor-footer"><span id="gate" class="pill">Input closed</span><span id="audio-format" class="small muted">Mono PCM · 16 kHz · 100 ms frames</span></div>
-      <p class="small muted">The meter shows the local mic even when muted. Real audio is sent only when the server is listening, including listening for “William” during Scripture reading. Otherwise, or when muted, only silence is sent. Pause and stop stay available.</p>
+      <p class="small muted">The meter shows the local mic even when muted. Real audio is sent only when the server is listening. During playback, or when muted, only silence is sent. Use the Pause button to interrupt reading; Pause and Stop stay available.</p>
     </section>
     <div class="workspace-grid">
       <section class="panel transcript-panel" aria-labelledby="transcript-heading"><div class="section-heading"><h2 id="transcript-heading">What the group said</h2><span class="pill">TRANSCRIPT</span></div><p class="small muted">Interim text may change. “Ignored” means heard but not acted on.</p><div id="transcript" class="feed transcript-feed" role="log" aria-label="Final transcripts"><p class="empty">Speechmatics transcripts will appear here.</p></div><div id="interim" class="interim" aria-label="Interim transcript">Waiting for speech…</div></section>

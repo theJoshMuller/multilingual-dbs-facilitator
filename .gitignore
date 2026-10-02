@@ -13,8 +13,13 @@ htmlcov/
 .aws/
 .codex/
 .DS_Store
+.cache/
+logs/
+.spike-beads/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
 .beads-credential-key
+
+/:memory:.ses

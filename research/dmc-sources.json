@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": 1,
+      "url": "file:///home/yeshu/projects/leviathan/eng/course/txts/eng.eng.03.009.003.1080.txt",
+      "title": "",
+      "accessed": "2026-09-09"
+    },
+    {
+      "id": 2,
+      "url": "file:///home/yeshu/projects/leviathan/eng/course/txts/eng.eng.03.009.004.1080.txt",
+      "title": "",
+      "accessed": "2026-09-09"
+    },
+    {
+      "id": 3,
+      "url": "file:///home/yeshu/projects/leviathan/eng/course/txts/eng.eng.03.009.008.1080.txt",
+      "title": "",
+      "accessed": "2026-09-09"
+    },
+    {
+      "id": 4,
+      "url": "file:///home/yeshu/projects/leviathan/eng/course/txts/eng.eng.03.009.009.1080.txt",
+      "title": "",
+      "accessed": "2026-09-09"
+    }
+  ]
+}

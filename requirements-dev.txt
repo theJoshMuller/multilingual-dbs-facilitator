@@ -1,0 +1,3 @@
+# Optional disposable browser QA; production web server uses requirements.txt only.
+# Run with: uv run --with playwright==1.62.0 python smoke_web_browser.py --url URL
+playwright==1.62.0

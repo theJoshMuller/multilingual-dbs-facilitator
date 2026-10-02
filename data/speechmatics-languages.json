@@ -1,0 +1,264 @@
+{
+  "source": "https://eu1.asr.api.speechmatics.com/v1/discovery/features",
+  "note": "Discovery returns batch metadata. Realtime selected-language support is documented at https://docs.speechmatics.com/speech-to-text/languages; account entitlements still apply. auto and multi are not realtime enrollment modes.",
+  "languages": {
+    "ar": {
+      "language_description": "Arabic"
+    },
+    "ar_en": {
+      "language_description": "Arabic / English",
+      "domains": {
+        "medical": {
+          "name": "Arabic / English - medical"
+        }
+      }
+    },
+    "ba": {
+      "language_description": "Bashkir"
+    },
+    "be": {
+      "language_description": "Belarusian"
+    },
+    "bg": {
+      "language_description": "Bulgarian"
+    },
+    "bn": {
+      "language_description": "Bengali"
+    },
+    "ca": {
+      "language_description": "Catalan"
+    },
+    "cmn": {
+      "language_description": "Mandarin",
+      "locales": {
+        "cmn-Hans": {
+          "name": "Simplified Mandarin"
+        },
+        "cmn-Hant": {
+          "name": "Traditional Mandarin"
+        }
+      }
+    },
+    "cmn_en": {
+      "language_description": "English / Mandarin"
+    },
+    "cmn_en_ms_ta": {
+      "language_description": "English / Mandarin / Malay / Tamil"
+    },
+    "cs": {
+      "language_description": "Czech"
+    },
+    "cy": {
+      "language_description": "Welsh"
+    },
+    "da": {
+      "language_description": "Danish",
+      "domains": {
+        "medical": {
+          "name": "Danish - medical"
+        }
+      }
+    },
+    "de": {
+      "language_description": "German",
+      "domains": {
+        "medical": {
+          "name": "German - medical"
+        }
+      }
+    },
+    "el": {
+      "language_description": "Greek"
+    },
+    "en": {
+      "language_description": "English",
+      "locales": {
+        "en-GB": {
+          "name": "British English"
+        },
+        "en-US": {
+          "name": "US English"
+        },
+        "en-AU": {
+          "name": "Australian English"
+        }
+      },
+      "domains": {
+        "finance": {
+          "name": "English - financial"
+        },
+        "medical": {
+          "name": "English - medical"
+        }
+      }
+    },
+    "en_ms": {
+      "language_description": "English / Malay"
+    },
+    "en_ta": {
+      "language_description": "English / Tamil"
+    },
+    "eo": {
+      "language_description": "Esperanto"
+    },
+    "es": {
+      "language_description": "Spanish",
+      "domains": {
+        "bilingual-en": {
+          "name": "English / Spanish"
+        },
+        "medical": {
+          "name": "Spanish - medical"
+        }
+      }
+    },
+    "et": {
+      "language_description": "Estonian"
+    },
+    "eu": {
+      "language_description": "Basque"
+    },
+    "fa": {
+      "language_description": "Persian"
+    },
+    "fi": {
+      "language_description": "Finnish",
+      "domains": {
+        "medical": {
+          "name": "Finnish - medical"
+        }
+      }
+    },
+    "fr": {
+      "language_description": "French",
+      "domains": {
+        "medical": {
+          "name": "French - medical"
+        }
+      }
+    },
+    "ga": {
+      "language_description": "Irish"
+    },
+    "gl": {
+      "language_description": "Galician"
+    },
+    "he": {
+      "language_description": "Hebrew"
+    },
+    "hi": {
+      "language_description": "Hindi"
+    },
+    "hr": {
+      "language_description": "Croatian"
+    },
+    "hu": {
+      "language_description": "Hungarian"
+    },
+    "ia": {
+      "language_description": "Interlingua"
+    },
+    "id": {
+      "language_description": "Indonesian"
+    },
+    "it": {
+      "language_description": "Italian"
+    },
+    "ja": {
+      "language_description": "Japanese"
+    },
+    "ko": {
+      "language_description": "Korean"
+    },
+    "lt": {
+      "language_description": "Lithuanian"
+    },
+    "lv": {
+      "language_description": "Latvian"
+    },
+    "mn": {
+      "language_description": "Mongolian"
+    },
+    "mr": {
+      "language_description": "Marathi"
+    },
+    "ms": {
+      "language_description": "Malay"
+    },
+    "mt": {
+      "language_description": "Maltese"
+    },
+    "nl": {
+      "language_description": "Dutch",
+      "domains": {
+        "medical": {
+          "name": "Dutch - medical"
+        }
+      }
+    },
+    "no": {
+      "language_description": "Norwegian",
+      "domains": {
+        "medical": {
+          "name": "Norwegian - medical"
+        }
+      }
+    },
+    "pl": {
+      "language_description": "Polish"
+    },
+    "pt": {
+      "language_description": "Portuguese"
+    },
+    "ro": {
+      "language_description": "Romanian"
+    },
+    "ru": {
+      "language_description": "Russian"
+    },
+    "sk": {
+      "language_description": "Slovakian"
+    },
+    "sl": {
+      "language_description": "Slovenian"
+    },
+    "sv": {
+      "language_description": "Swedish",
+      "domains": {
+        "medical": {
+          "name": "Swedish - medical"
+        }
+      }
+    },
+    "sw": {
+      "language_description": "Swahili"
+    },
+    "ta": {
+      "language_description": "Tamil"
+    },
+    "th": {
+      "language_description": "Thai"
+    },
+    "tl": {
+      "language_description": "Tagalog"
+    },
+    "tr": {
+      "language_description": "Turkish"
+    },
+    "ug": {
+      "language_description": "Uyghur"
+    },
+    "uk": {
+      "language_description": "Ukrainian"
+    },
+    "ur": {
+      "language_description": "Urdu"
+    },
+    "vi": {
+      "language_description": "Vietnamese"
+    },
+    "yue": {
+      "language_description": "Cantonese"
+    }
+  }
+}

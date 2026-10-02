@@ -1,0 +1,23 @@
+[Unit]
+Description=Private Tailscale Discovery Bible Study debug demo
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/yeshu/projects/voice_dbs_demo
+ExecStart=/home/yeshu/projects/voice_dbs_demo/.venv/bin/python /home/yeshu/projects/voice_dbs_demo/dbs_web.py
+Environment=PYTHONUNBUFFERED=1
+Environment=DBS_WEB_PORT=8094
+Environment=DBS_WEB_ORIGINS=https://sylphrena.tail7db433.ts.net,http://127.0.0.1:8094,http://localhost:8094
+Environment=DBS_LLM_PROVIDER=rules
+Environment=DBS_LANGUAGE=en
+Environment=STT_LANGUAGE=en
+Environment=DBS_TTS_PROVIDER=elevenlabs
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

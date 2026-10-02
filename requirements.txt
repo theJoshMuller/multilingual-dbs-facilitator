@@ -1,0 +1,9 @@
+# Verified with Python 3.13.5. ElevenLabs uses the existing httpx dependency.
+livekit-agents[speechmatics,openai,silero]==1.8.0
+speechmatics-rt==1.1.1
+speechmatics-voice==0.2.8
+python-dotenv==1.2.3
+sounddevice==0.5.6
+aiohttp==3.14.3
+httpx==0.28.1
+openai==2.54.0

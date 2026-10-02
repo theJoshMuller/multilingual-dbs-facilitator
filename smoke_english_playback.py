@@ -1,6 +1,7 @@
 """Offline legacy PCM playback/ack regression; synthetic mic and local WS fixture."""
 import asyncio
 import json
+import os
 
 from playwright.async_api import async_playwright, expect
 
@@ -39,7 +40,7 @@ async def smoke():
             send({'type':'hello','protocol':1})
         await page.route_web_socket('**/ws', bridge)
         try:
-            await page.goto('http://127.0.0.1:8095/dbs/', wait_until='networkidle')
+            await page.goto(os.getenv('DBS_SMOKE_BASE_URL', 'http://127.0.0.1:8095') + '/dbs/', wait_until='networkidle')
             await page.locator('#start').click()
             await expect(page.locator('#connection')).to_have_text('connecting stt', timeout=5000)
             await expect(page.locator('[data-action="pause"]')).to_be_disabled()

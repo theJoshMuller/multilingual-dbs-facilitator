@@ -179,7 +179,10 @@ class PCMStreamingTests(unittest.IsolatedAsyncioTestCase):
     async def test_validation_happens_before_http_client_creation(self):
         cases = [('Hello.', 'xx', ''), ('Hello.', 'en', '../voice'), ('   ', 'en', ''), ('\n' * 2001, 'en', '')]
         for text, language, voice in cases:
-            with self.subTest(text=text, language=language, voice=voice), patch('dbs_tts.httpx.AsyncClient') as client:
+            with (
+                self.subTest(text=text, language=language, voice=voice),
+                patch('dbs_tts.httpx.AsyncClient') as client,
+            ):
                 with self.assertRaises(ValueError):
                     await anext(dbs_tts.stream_pcm(text, language, voice=voice))
                 client.assert_not_called()

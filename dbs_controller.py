@@ -1,6 +1,7 @@
 """Provider-neutral generative facilitation and transactional session state."""
 import asyncio
 from copy import deepcopy
+from dataclasses import replace
 
 from dbs_conversation import ConversationFlow
 from dbs_facilitator import Decision
@@ -9,6 +10,7 @@ from dbs_prompts import EN, ES
 
 class ConversationController:
     mode = 'generative'
+    idle_seconds = 7.0
 
     def __init__(self, lesson, language='en', *, facilitator, max_people=7, text_mode=False):
         self.lesson = lesson
@@ -94,6 +96,10 @@ class ConversationController:
                 self.flow.attach_identifiers(speaker, identifiers, solo=solo)
             self.last_decision = decision
             prompts = self.flow.apply(decision, speaker=speaker, identifiers=identifiers, solo=solo)
+            if decision.action == 'introduce' and not prompts and not self.flow.paused:
+                # Diagnostics describe actual playback, not suppressed model speech.
+                self.last_decision = replace(decision, speech='', note=
+                    'Introduction recorded; server kept this turn silent for the next participant.')
             if decision.action == 'stop':
                 self.history.clear()
                 return prompts
@@ -113,7 +119,7 @@ class ConversationController:
 
     async def idle(self):
         async with self._transaction:
-            if self._idle_requested or self.flow.paused or self.flow.phase != 'lesson':
+            if self._idle_requested or self.flow.paused or self.flow.phase not in ('introductions', 'confirm_name', 'lesson'):
                 return []
             prompts = await self._decide('', event='idle')
             self._idle_requested = True
@@ -144,6 +150,8 @@ class ConversationController:
         if action not in ('next', 'previous', 'repeat', 'read_scripture', 'pause', 'resume', 'stop', 'safety', 'finish_enrollment'):
             raise ValueError('Unknown control action')
         self._revision += 1
+        if action in ('next', 'previous', 'repeat', 'read_scripture', 'resume', 'finish_enrollment'):
+            self._idle_requested = False
         self.last_decision = Decision('pause' if action == 'safety' else action)
         prompts = self.flow.apply(self.last_decision)
         copy_key = {'pause': 'paused', 'resume': 'resumed', 'stop': 'stopped', 'safety': 'safety'}.get(action)

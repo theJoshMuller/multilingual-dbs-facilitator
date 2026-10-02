@@ -1,7 +1,7 @@
 """LiveKit voice DBS prototype. Run: .venv/bin/python dbs_agent.py console
 
 Use `rehearse` for text-only testing. Unlike LiveKit's --text mode, this exercises
-exactly the same deterministic controller without bypassing enrollment hooks.
+the same facilitation controller with an explicit text enrollment bypass.
 """
 from __future__ import annotations
 
@@ -26,7 +26,9 @@ from livekit.agents import (
 )
 from livekit.plugins import silero, speechmatics
 
+from dbs_controller import ConversationController
 from dbs_curriculum import DEFAULT_WAHA_ROOT, Lesson, load_lesson
+from dbs_facilitator import Decision, Facilitator
 from dbs_flow import DBSFlow, Event, Intent, Prompt
 from dbs_intents import IntentParser, rule_intent
 from dbs_tts import synthesize, tts_language, voice_id
@@ -111,12 +113,73 @@ def identifiers_for(result: list, label: str) -> tuple[str, ...]:
     return ()
 
 
+def facilitation_mode() -> str:
+    mode = os.getenv("DBS_FACILITATION_MODE", "generative")
+    if mode not in ("generative", "rules"):
+        raise ValueError("DBS_FACILITATION_MODE must be generative or rules")
+    return mode
+
+
+def conversation_controller(config: dict, lesson: Lesson, *, text_mode: bool = False):
+    if config["language"] not in ("en", "es"):
+        raise ValueError("Generative facilitation supports English/Spanish; use DBS_FACILITATION_MODE=rules for other CLI locales")
+    return ConversationController(
+        lesson, config["language"], facilitator=Facilitator(config["language"], lesson),
+        max_people=config["people"], text_mode=text_mode,
+    )
+
+
 class DBSController:
+    mode = "rules"
+    idle_seconds = 25.0
+
     def __init__(self, config: dict, lesson: Lesson, parser: IntentParser, prompts: dict, *, text_mode: bool = False):
         self.flow = DBSFlow(lesson.steps, text_mode=text_mode, max_people=config["people"], manual_scripture=not lesson.verses)
         self.lesson = lesson
         self.parser = parser
         self.prompts = prompts
+        self.last_decision = None
+
+    @property
+    def provider(self):
+        return self.parser.provider
+
+    @property
+    def model(self):
+        return getattr(self.parser, "model", "") if self.provider != "rules" else ""
+
+    async def start(self):
+        return self.flow.start()
+
+    async def idle(self):
+        return self.flow.idle()
+
+    def snapshot(self):
+        return copy.deepcopy((self.flow.__dict__, self.last_decision))
+
+    def restore(self, snapshot):
+        state, self.last_decision = copy.deepcopy(snapshot)
+        self.flow.__dict__.clear()
+        self.flow.__dict__.update(state)
+
+    def control(self, action):
+        intent = Intent({"read_scripture": "scripture"}.get(action, action))
+        self.last_decision = Decision(intent.value)
+        return self.flow.handle(Event(intent))
+
+    def complete_playback(self, prompts):
+        # The legacy flow completes synchronously; this hook keeps one runtime API.
+        pass
+
+    def prompt_origin(self, prompt):
+        if prompt.key == "scripture":
+            return "canonical" if self.lesson.scripture else "deterministic"
+        return "canonical" if prompt.key in self.lesson.questions else "deterministic"
+
+    async def close(self):
+        self.flow.roster.clear()
+        self.flow.pending = None
+        await self.parser.close()
 
     def render(self, prompt: Prompt) -> str:
         if prompt.key == "scripture":
@@ -125,18 +188,20 @@ class DBSController:
             return self.lesson.questions[prompt.key]
         return self.prompts[prompt.key].format(**prompt.values)
 
-    async def accept(self, text: str, *, identifiers: tuple[str, ...] = ()) -> list[Prompt]:
-        speaker, solo = speaker_info(text)
+    async def accept(self, text: str, *, identifiers: tuple[str, ...] = (), speaker: str = "", solo: bool = True, source: str = "voice") -> list[Prompt]:
+        if not speaker:
+            speaker, solo = speaker_info(text)
         intent, name = await self.parser.classify(text, self.flow.phase)
         if self.flow.text_mode:
             speaker = speaker or (self.flow.pending.speaker if self.flow.pending else f"text-{len(self.flow.roster) + 1}")
+        self.last_decision = Decision(intent.value)
         return self.flow.handle(Event(intent, speaker, name, identifiers, solo))
 
 
 class DiscoveryAgent(Agent):
     def __init__(self, controller: DBSController, recognizer: speechmatics.STT, config: dict):
-        # There is deliberately no generative LLM connected to the speech pipeline.
-        super().__init__(instructions="Facilitation is controlled by DBSFlow. Never generate answers.")
+        # All facilitation runs through the shared controller, not LiveKit reply generation.
+        super().__init__(instructions="The study controller owns facilitation and exact Scripture playback.")
         self.controller = controller
         self.recognizer = recognizer
         self.config = config
@@ -157,7 +222,11 @@ class DiscoveryAgent(Agent):
         # Stay in LiveKit's registered on_enter task for inline playback.
         # A child task awaiting speech inherits context but not registration.
         try:
-            await self._say(self.controller.flow.start())
+            self.active_turn = asyncio.create_task(self.controller.start())
+            prompts = await self.active_turn
+            self.active_turn = None
+            await self._say(prompts)
+            self.controller.complete_playback(prompts)
         except asyncio.CancelledError:
             if (task := asyncio.current_task()) and task.cancelling():
                 raise
@@ -165,6 +234,7 @@ class DiscoveryAgent(Agent):
             logger.error("DBS startup speech failed (%s)", type(exc).__name__)
             self.session.shutdown(drain=False)
             return
+        self.active_turn = None
         self.tasks = [asyncio.create_task(self._consume()), asyncio.create_task(self._idle())]
         logger.info("DBS ready: language=%s lesson=01.001.001 bible=%s", self.config["language"], self.controller.lesson.bible)
 
@@ -180,7 +250,7 @@ class DiscoveryAgent(Agent):
         self.controller.flow.pending = None
         self.durations.clear()
         self.resume_prompts.clear()
-        await self.controller.parser.close()
+        await self.controller.close()
 
     async def stt_node(self, audio, model_settings):
         async for event in Agent.default.stt_node(self, audio, model_settings):
@@ -242,8 +312,9 @@ class DiscoveryAgent(Agent):
         try:
             for prompt in prompts:
                 text = self.controller.render(prompt)
-                logger.info("DBS prompt: %s", prompt.key)
-                # No generic answers, generated summaries, or SKIP can reach TTS.
+                logger.info("DBS prompt: %s origin=%s provider=%s model=%s", prompt.key,
+                            self.controller.prompt_origin(prompt), self.controller.provider, self.controller.model)
+                # Generated facilitation and exact canonical assets share the same playback path.
                 frames = await speech_frames(text, self.config, self.voice)
                 handle = self.session.say(text, audio=frame_stream(frames), allow_interruptions=False, add_to_chat_ctx=False)
                 self.speech_handle = handle
@@ -266,29 +337,42 @@ class DiscoveryAgent(Agent):
             self.busy = False
 
     async def _process(self, text: str | None):
-        previous = copy.deepcopy(self.controller.flow)
+        previous = self.controller.snapshot()
         self.busy = True
         self.last_prompts = []
         try:
             if text is None:
                 # Idle work shares the sole consumer and is rechecked for staleness.
-                if self.human_speaking or not self.queue.empty() or time.monotonic() - self.last_activity < 25:
+                if self.human_speaking or not self.queue.empty() or time.monotonic() - self.last_activity < self.controller.idle_seconds:
                     return
-                prompts = self.controller.flow.idle()
+                prompts = await self.controller.idle()
             else:
+                self.nudged = False
                 ids = ()
                 speaker, solo = speaker_info(text)
-                urgent = rule_intent(text, self.controller.flow.phase)[0] in (Intent.STOP, Intent.PAUSE, Intent.SAFETY)
-                if not urgent and self.controller.flow.phase == "introductions" and speaker and solo and self.durations.get(speaker, 0) >= 5:
+                intent = rule_intent(text, self.controller.flow.phase)[0]
+                urgent = intent in (Intent.STOP, Intent.PAUSE, Intent.SAFETY)
+                enrolling = self.controller.flow.phase in ("introductions", "confirm_name")
+                if not urgent and enrolling and speaker and speaker != "UU" and solo and self.durations.get(speaker, 0) >= 5:
                     ids = identifiers_for(await self.recognizer.get_speaker_ids(), speaker)
-                prompts = await self.controller.accept(text, identifiers=ids)
-                if any(prompt.key == "resumed" for prompt in prompts):
+                if urgent:
+                    prompts = self.controller.control(intent.value)
+                else:
+                    prompts = await self.controller.accept(text, identifiers=ids, speaker=speaker, solo=solo)
+                action = self.controller.last_decision.action if self.controller.last_decision else ""
+                if action in ("next", "previous", "repeat", "read_scripture", "finish_enrollment"):
+                    self.resume_prompts = []
+                if action == "resume":
                     prompts += self.resume_prompts
                     self.resume_prompts = []
             await self._say(prompts)
+            self.controller.complete_playback(prompts)
         except Exception as exc:  # noqa: BLE001 -- fail-closed boundary; log no participant content
-            self.controller.flow = previous
-            logger.error("DBS processing failed (%s); no model prose will be spoken", type(exc).__name__)
+            self.controller.restore(previous)
+            logger.error("DBS processing failed (%s); study state restored", type(exc).__name__)
+            if self.controller.mode == "generative":
+                self.session.shutdown(drain=False)
+                return
             try:
                 await self._say([Prompt("error")])
             except Exception:
@@ -319,9 +403,10 @@ class DiscoveryAgent(Agent):
         # One invitation after a lull, never automatic lesson advancement.
         while True:
             await asyncio.sleep(0.5)
-            if self.busy or self.human_speaking or self.nudged or not self.queue.empty():
+            if (self.busy or self.human_speaking or self.nudged or not self.queue.empty()
+                    or self.controller.flow.paused):
                 continue
-            if time.monotonic() - self.last_activity >= 25:
+            if time.monotonic() - self.last_activity >= self.controller.idle_seconds:
                 self.nudged = True
                 self.queue.put_nowait(None)
 
@@ -329,6 +414,8 @@ class DiscoveryAgent(Agent):
 async def build_controller(*, text_mode: bool = False):
     config = settings()
     lesson = configured_lesson(config)
+    if facilitation_mode() == "generative":
+        return config, conversation_controller(config, lesson, text_mode=text_mode)
     parser = IntentParser()
     try:
         if parser.provider == "rules" and config["language"] not in ("en", "es"):
@@ -357,8 +444,10 @@ async def rehearse():
     if controller.lesson.scripture_url:
         print("Scripture source:", controller.lesson.scripture_url)
     try:
-        for prompt in controller.flow.start():
+        opening = await controller.start()
+        for prompt in opening:
             print("William:", controller.render(prompt))
+        controller.complete_playback(opening)
         while controller.flow.phase != "done":
             try:
                 text = await asyncio.to_thread(input, "You: ")
@@ -367,16 +456,20 @@ async def rehearse():
             if not text.strip():
                 continue
             try:
-                prompts = await controller.accept(text)
+                prompts = await controller.accept(text, source="text")
             except Exception as exc:  # noqa: BLE001 -- interactive provider boundary
                 print(f"Parser error: {type(exc).__name__}", file=sys.stderr)
+                if controller.mode == "generative":
+                    print("Facilitation failed; study state has not advanced.", file=sys.stderr)
+                    continue
                 prompts = [Prompt("error")]
             for prompt in prompts:
                 print("William:", controller.render(prompt))
+            controller.complete_playback(prompts)
     finally:
         controller.flow.roster.clear()
         controller.flow.pending = None
-        await controller.parser.close()
+        await controller.close()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """Offline transport/privacy/state tests; provider calls are explicitly mocked."""
 import asyncio
 import json
+import os
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -14,6 +15,9 @@ from dbs_web import DemoSession, create_app
 
 class SessionTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        env = patch.dict(os.environ, {'DBS_FACILITATION_MODE': 'rules'})
+        env.start()
+        self.addCleanup(env.stop)
         self.ws = Mock(closed=False, send_json=AsyncMock(), send_bytes=AsyncMock())
         self.session = DemoSession(self.ws, 'en')
         self.session.stream = Mock()
@@ -129,6 +133,17 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.headers['X-Frame-Options'], 'DENY')
         self.assertIn("frame-ancestors 'none'", result.headers['Content-Security-Policy'])
 
+    async def test_csp_allows_the_embedded_local_fonts(self):
+        response = await self.client.get('/dbs/styles.css')
+        self.assertIn('data:font/woff2', await response.text())
+        directives = {parts[0]: set(parts[1:])
+                      for rule in response.headers['Content-Security-Policy'].split(';')
+                      if (parts := rule.strip().split())}
+        fonts = directives.get('font-src', directives['default-src'])
+        self.assertIn('data:', fonts)
+        self.assertIn("'self'", fonts)
+        self.assertNotIn('https://fonts.googleapis.com', directives['style-src'])
+
     async def test_no_directory_or_credential_exposure(self):
         for path in ('/.env', '/dbs/.env', '/dbs/dbs_agent.py', '/.speaker_profiles.json', '/requirements.txt'):
             response = await self.client.get(path)
@@ -161,6 +176,16 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await ws.receive_json())['code'],'invalid_start')
                 await ws.close()
             proof.assert_not_called()
+
+    async def test_start_has_no_in_app_consent_gate(self):
+        started = asyncio.Event()
+        fake = Mock(closed=asyncio.Event(), run=AsyncMock(side_effect=started.set))
+        with patch('dbs_web.DemoSession', return_value=fake) as session:
+            async with self.client.ws_connect('/ws', headers={'Origin': self.origin}) as ws:
+                await ws.receive_json()
+                await ws.send_json({'type': 'start', 'language': 'en'})
+                await asyncio.wait_for(started.wait(), 1)
+                session.assert_called_once()
 
     async def test_browser_bad_json_closes_without_starting_provider(self):
         with patch('dbs_web.DemoSession') as session:

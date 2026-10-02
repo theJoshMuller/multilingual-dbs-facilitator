@@ -3,13 +3,14 @@ import asyncio
 import copy
 import logging
 import time
+from dataclasses import replace
 
 from dbs_assemblyai import AssemblyStream, read_worktree_key
 from dbs_controller import ConversationController
 from dbs_conversation import ConversationFlow
 from dbs_curriculum import Lesson, validate_verses
-from dbs_facilitator import Decision
-from dbs_flow import Participant, Prompt
+from dbs_facilitator import Decision, Facilitator
+from dbs_flow import Participant, Prompt, valid_name
 from dbs_harness import HarnessFacilitator
 from dbs_mixed_turns import TurnLedger
 from dbs_web import DemoSession
@@ -49,47 +50,105 @@ class EnglishFlow(ConversationFlow):
         self.ledger = ledger
         self.order = None
         self.reported_names = []
+        self.name_uncertain = False
+        self.uncertain_order = None
 
     def sync_names(self):
         self.roster = [Participant(value['name'], label, ()) for label, value in self.ledger.names.items()]
-        if self.pending and self.pending.speaker not in self.ledger.pending:
+        uncertain_turn = self.ledger.turns.get(self.uncertain_order, {})
+        if self.pending and self.name_uncertain and uncertain_turn.get('speaker_label') != self.pending.speaker:
+            self.name_uncertain = False
+            self.pending = None
+            if self.phase == 'confirm_name':
+                self.phase = 'introductions'
+        if self.pending and not self.name_uncertain and self.pending.speaker not in self.ledger.pending:
             self.pending = None
             if self.phase == 'confirm_name':
                 self.phase = 'introductions'
 
     def apply(self, decision, *, speaker='', identifiers=(), solo=True):
         self.sync_names()
-        if decision.action == 'introduce':
-            if decision.name and decision.name not in self.reported_names:
-                self.reported_names.append(decision.name)
-                self.reported_names[:] = self.reported_names[-7:]
-            if solo and self.ledger.introduce(self.order, decision.name):
+        action = decision.action
+        if self.phase == 'done' or self.paused:
+            return super().apply(decision, speaker=speaker, solo=solo)
+        if action in ('introduce', 'clarify_name'):
+            if not valid_name(decision.name):
+                return self.generated(decision.speech) if action == 'clarify_name' else []
+            uncertain_other = self.pending and self.name_uncertain and self.pending.speaker != speaker
+            if action == 'clarify_name':
+                if uncertain_other or speaker in ('', 'PENDING'):
+                    return self.generated(decision.speech)
+                self.uncertain_order = self.order
                 self.pending = Participant(decision.name, speaker, ())
+                self.name_uncertain = True
                 self.phase = 'confirm_name'
-            return self.generated(decision.speech)
-        if decision.action in ('confirm_name', 'reject_name'):
-            if self.pending and solo and self.pending.speaker == speaker:
-                if decision.action == 'confirm_name':
+                return self.generated(decision.speech)
+            if decision.name.casefold() not in [n.casefold() for n in self.reported_names]:
+                if len(self.reported_names) >= self.max_people:
+                    return []
+                self.reported_names.append(decision.name)
+            if self.name_uncertain and not uncertain_other:
+                self.pending = None
+                self.name_uncertain = False
+                self.phase = 'introductions'
+            existing = self.ledger.pending.get(speaker)
+            if solo and existing and existing['name'] == decision.name and self.ledger.confirm(self.order, decision.name):
+                if not uncertain_other:
+                    self.pending = None
+                self.sync_names()
+            elif solo and self.ledger.introduce(self.order, decision.name) and not uncertain_other:
+                self.pending = Participant(decision.name, speaker, ())
+            return []  # PR #1: let the next participant speak, even if model adds filler.
+        if action in ('confirm_name', 'reject_name'):
+            if self.pending and self.pending.speaker == speaker and speaker not in ('', 'PENDING'):
+                if self.name_uncertain:
+                    if action == 'confirm_name':
+                        # Confirm the heard spelling, without claiming a verified voice.
+                        name = self.pending.name
+                        self.name_uncertain = False
+                        self.pending = None
+                        self.phase = 'introductions'
+                        return self.apply(replace(decision, action='introduce', name=name, speech=''), speaker=speaker, solo=solo)
+                    self.name_uncertain = False
+                    self.pending = None
+                    self.phase = 'introductions'
+                elif solo and action == 'confirm_name':
                     self.ledger.confirm(self.order, self.pending.name)
                     self.sync_names()
                     if speaker in self.ledger.names:
                         self.pending = None
                         self.phase = 'introductions'
-                else:
+                elif solo:
                     self.ledger.pending.pop(speaker, None)
                     self.pending = None
                     self.phase = 'introductions'
             return self.generated(decision.speech)
-        if decision.action == 'finish_enrollment':
+        if action == 'finish_enrollment':
             if self.phase not in ('introductions', 'confirm_name'):
                 return self.generated(decision.speech)
+            if self.name_uncertain:
+                return []
+            if decision.name:
+                self.apply(replace(decision, action='introduce', speech=''), speaker=speaker, solo=solo)
             self.pending = None
             self.phase = 'lesson'
             return [*self.generated(decision.speech), *self.navigate(1)]
+        if action in ('next', 'previous', 'stop'):
+            self.name_uncertain = False
         return super().apply(decision, speaker=speaker, solo=solo)
 
 
 class EnglishController(ConversationController):
+    async def start(self):
+        # Josh's exact approved welcome is prepared locally; startup never waits
+        # on a model or duplicates the generated PR #1 opening.
+        async with self._transaction:
+            if self._started or self._closed:
+                return []
+            self._started = True
+            self.last_decision = Decision('listen')
+            return self._record([Prompt('f.001')])
+
     def prompt_origin(self, prompt):
         if prompt.key == 'f.001':
             return 'user_authored'
@@ -108,21 +167,28 @@ class EnglishController(ConversationController):
 
     def _context(self, speaker='', solo=True, identifiers=()):
         context = super()._context(speaker, solo, ())
+        context['pending_name'] = context['pending_name'] if self.flow.name_uncertain else None
+        if not solo:
+            context['speaker'] = 'PENDING'
+            context['roster'] = []
         context['voice_enrollment_ready'] = solo
+        context['identity_mode'] = 'revisable_labels'
         context['reported_names_unverified'] = self.flow.reported_names[:]
         context['human_identity_verified'] = False
         return context
 
 
 class EnglishSession(DemoSession):
-    def __init__(self, ws, broker, *, provider=None, prepared=None):
+    def __init__(self, ws, broker=None, *, provider=None, prepared=None, facilitator=None):
         self.ledger = TurnLedger()
-        controller = EnglishController(copy.deepcopy(prepared[0]) if prepared else question_lesson(), facilitator=HarnessFacilitator(broker))
+        lesson = copy.deepcopy(prepared[0]) if prepared else question_lesson()
+        facilitator = facilitator or (HarnessFacilitator(broker) if broker is not None else Facilitator('en', lesson))
+        controller = EnglishController(lesson, facilitator=facilitator)
         controller.flow = EnglishFlow(controller.lesson, self.ledger)
         super().__init__(ws, 'en', controller=controller)
         self.provider = provider or AssemblyStream(read_worktree_key(), languages=('en',))
         self.provenance = dict(prepared[1]) if prepared else {}
-        self.last_turn_end = 0
+        self.speech_order = -1
         self.opening_pending = True
 
     def state(self):
@@ -141,6 +207,7 @@ class EnglishSession(DemoSession):
                 'wake_listen': False,
                 'roster': [{'name': p.name, 'speaker': p.speaker, 'voice_enrolled': False,
                             'identity_status': 'confirmed_same_label'} for p in flow.roster],
+                'pending': {'name': flow.pending.name, 'speaker': flow.pending.speaker} if flow.pending and flow.name_uncertain else None,
                 'unverified_names': flow.reported_names, 'human_identity_verified': False}
 
     async def feed_audio(self, data):
@@ -176,6 +243,16 @@ class EnglishSession(DemoSession):
         for event in self.ledger.accept(message):
             self.controller.flow.sync_names()
             ignored = self.busy or self.closed.is_set() or self.controller.flow.paused or self.opening_pending
+            if (event.get('new_final') and not event.get('revision')
+                    and event['turn_order'] == self.speech_order):
+                self.human_speaking = False
+            if (not ignored and not event.get('revision') and event.get('text')
+                    and event['turn_order'] >= self.speech_order
+                    and (not event.get('final') or event.get('new_final'))):
+                self.speech_order = event['turn_order']
+                self.last_activity = time.monotonic()
+                self.nudged = False
+                self.human_speaking = not event.get('final')
             await self.emit('transcript', **{k: v for k, v in event.items() if k != 'type'}, ignored=ignored)
             if event.get('new_final') and not event.get('revision') and not ignored:
                 self.last_activity = time.monotonic()
@@ -213,13 +290,18 @@ class EnglishSession(DemoSession):
         started = time.monotonic()
         selected = False
         try:
+            if item != 'idle':
+                self.nudged = False
             if item == 'opening':
                 if not self.opening_pending or self.controller.flow.paused:
                     return
                 await self.emit('status', stage='thinking', message='The prepared welcome is ready; William will invite names and thankfulness.')
                 prompts = await self.controller.start()
-                prompts.append(Prompt('f.001'))
                 self.opening_pending = False
+            elif item == 'idle':
+                if self.opening_pending or self.controller.flow.paused or self.human_speaking or not self.queue.empty() or time.monotonic() - self.last_activity < self.controller.idle_seconds:
+                    return
+                prompts = await self.controller.idle()
             elif isinstance(item, dict) and 'control' in item:
                 action = item['control']
                 prompts = self.controller.control(action)
@@ -228,10 +310,9 @@ class EnglishSession(DemoSession):
                     self.resume_prompts = []
                     if self.opening_pending:
                         prompts += await self.controller.start()
-                        prompts.append(Prompt('f.001'))
                         self.opening_pending = False
             else:
-                await self.emit('status', stage='thinking', message='William is considering the completed contribution through the active Codex session.')
+                await self.emit('status', stage='thinking', message='William is considering the completed contribution.')
                 self.controller.flow.order = item['turn_order']
                 context_speaker = item.get('speaker_label') or 'PENDING'
                 prompts = await self.controller.accept(item['text'], speaker=context_speaker,
@@ -240,7 +321,8 @@ class EnglishSession(DemoSession):
             self.remaining_prompts = list(prompts)
             decision = self.controller.last_decision or Decision('listen')
             await self.emit('decision', input=item.get('text', '') if isinstance(item, dict) else '',
-                intent=decision.action, source='voice' if isinstance(item, dict) and 'text' in item else 'control',
+                intent=decision.action, source='voice' if isinstance(item, dict) and 'text' in item else str(item) if isinstance(item, str) else 'control',
+                prompt_origins=[self.controller.prompt_origin(p) for p in prompts],
                 parser=self.controller.provider, model=self.controller.model,
                 phase_before=before[0]['phase'], phase_after=self.controller.flow.phase,
                 prompts=[p.key for p in prompts], elapsed_ms=round((time.monotonic()-started)*1000, 1), reason=decision.note)
@@ -271,6 +353,11 @@ class EnglishSession(DemoSession):
             await asyncio.sleep(1)
             if time.monotonic()-self.last_input > 15:
                 await self.fail('microphone_stalled', 'No microphone packets; stream is stopping.', fatal=True)
+            if (not self.busy and not self.opening_pending and not self.controller.flow.paused
+                    and not self.human_speaking and not self.nudged and self.queue.empty()
+                    and time.monotonic()-self.last_activity >= self.controller.idle_seconds):
+                self.nudged = True
+                await self.enqueue('idle')
             await self.emit('metrics', received_bytes=self.received_bytes, input_seconds=self.accepted_bytes/32000, queue_depth=self.queue.qsize())
 
     async def run(self):
@@ -279,6 +366,8 @@ class EnglishSession(DemoSession):
                 await self.emit('status', stage='loading_source', message='Verifying official YouVersion NIV and original Waha questions.')
                 lesson, self.provenance = await asyncio.wait_for(asyncio.to_thread(build_english_lesson), 60)
                 self.controller.lesson = self.controller.flow.lesson = lesson
+                if isinstance(self.controller.facilitator, Facilitator):
+                    self.controller.facilitator.lesson = lesson
             self.controller.flow.manual_scripture = False
             await self.emit('scripture_source', **self.provenance)
             await self.emit('status', stage='connecting_stt', message='Source ready; connecting the shared microphone before the opening.')

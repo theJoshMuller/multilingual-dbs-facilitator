@@ -81,7 +81,8 @@
         || (state?.source_ready === false && !['pause', 'resume'].includes(action))
         || (!state && action !== 'pause')
         || (action === 'resume' && state?.paused !== true)
-        || (action === 'pause' && state?.paused === true);
+        || (action === 'pause' && state?.paused === true)
+        || (action === 'previous' && state?.facilitation_mode !== 'generative');
     }
     const micLive = runtime.active && Boolean(runtime.stream);
     const passing = micLive && (runtime.listen || runtime.wakeListening) && !runtime.muted;
@@ -408,9 +409,9 @@
     runtime.state = state; runtime.listen = state.listen === true;
     if (state.mode === 'assemblyai-english') {
       $('pipe-stt').textContent = '02 · AssemblyAI';
-      $('pipe-model').textContent = '03 · Codex session';
-      $('model-label').textContent = 'Active Codex session · human name recognition unverified';
-      $('decision-provider').textContent = 'CODEX SESSION';
+      $('pipe-model').textContent = '03 · Conversational facilitator';
+      $('model-label').textContent = `${text(state.parser, 80)} · ${text(state.model, 160)} · human name recognition unverified`;
+      $('decision-provider').textContent = text(state.parser, 80).toUpperCase();
     }
     if (state.mode === 'assemblyai-proof') {
       $('pipe-stt').textContent = '02 · AssemblyAI';
@@ -422,10 +423,22 @@
     const total = Array.isArray(state.steps) ? state.steps.length : 0;
     $('lesson-step').textContent = text(state.question_key, 80) || (total && number(state.index) !== null ? `${Math.max(0, state.index + 1)} / ${total}` : '—');
     $('bible').textContent = [text(state.bible, 50), human(state.scripture_mode)].filter((v) => v && v !== '—').join(' · ') || '—';
-    // prompt events are the exact currently spoken message; state adds question context.
-    if (!$('prompt-key').textContent || $('prompt-key').textContent === '—') {
-      if (state.current_question) $('current-prompt').textContent = text(state.current_question);
+    const studying = ['lesson', 'closing', 'done'].includes(state.phase);
+    if (state.current_question && (studying || state.facilitation_mode !== 'generative')) {
+      $('current-prompt').textContent = text(state.current_question);
     }
+    $('question-key').textContent = studying || !state.facilitation_mode ? text(state.question_key, 80) || '—' : 'Introductions';
+    if (state.facilitation_mode) {
+      const provider = text(state.parser, 80) || 'unknown';
+      const model = text(state.model, 160);
+      $('model-label').textContent = `${human(state.facilitation_mode)} · ${provider}${model ? ` / ${model}` : ''}`;
+      $('pipe-model').textContent = `03 · ${state.facilitation_mode === 'generative' ? 'Generative facilitator' : 'Rules controller'}`;
+      $('decision-provider').textContent = provider.toUpperCase();
+      $('control-note').textContent = state.facilitation_mode === 'generative'
+        ? 'Previous, Next, and Everyone is here act directly. During playback, use Pause to interrupt. Your group sets the pace.'
+        : 'Rules mode: request Next, then confirm aloud. Previous is unavailable. During playback, use Pause to interrupt.';
+    }
+    renderGuide();
     $('stat-queue').textContent = String(number(state.queue_depth) ?? '—');
     const roster = Array.isArray(state.roster) ? state.roster.slice(0, 100) : [];
     $('roster-count').textContent = `${roster.length} ${roster.length === 1 ? 'person' : 'people'}`;
@@ -437,7 +450,16 @@
       details.append(make('p', 'person-name', name), make('p', 'person-meta', `${speakerLabel(person.speaker)} · ${seconds(person.speech_seconds)} speech · Enrolled: ${person.voice_enrolled === true ? 'yes' : 'no'}`));
       row.append(make('div', 'avatar', Array.from(name)[0]?.toUpperCase() || '?'), details); $('roster').append(row);
     }
-    if (!roster.length) $('roster').append(make('p', 'empty', 'Introduce yourselves one at a time. Say your name and what you’re thankful for.'));
+    const reported = Array.isArray(state.unverified_names) ? state.unverified_names.slice(0, 7) : [];
+    for (const name of reported) {
+      if (roster.some((person) => person.name.toLowerCase() === name.toLowerCase())) continue;
+      const row = make('div', 'person');
+      const details = make('div');
+      details.append(make('p', 'person-name', text(name, 60)), make('p', 'person-meta', 'Self-reported name · voice UNVERIFIED'));
+      row.append(details); $('roster').append(row);
+    }
+    if (!roster.length && !reported.length) $('roster').append(make('p', 'empty', 'Introduce yourselves one at a time. Say your name and what you’re thankful for.'));
+    if (reported.length) $('roster-count').textContent = `${reported.length} self-reported`;
     $('pending-name').hidden = !state.pending;
     if (state.pending) $('pending-name').textContent = `Confirming ${text(state.pending.name, 120) || 'a name'} (${speakerLabel(state.pending.speaker)}). The same person can confirm or correct their name naturally. Human voice recognition remains unverified.`;
     renderControls();
@@ -470,14 +492,18 @@
 
   function decision(event) {
     const row = make('article', 'feed-entry'); const meta = make('div', 'entry-meta');
-    meta.append(make('span', '', time(event.at)), make('strong', 'intent', human(event.intent)), make('span', '', event.source === 'button' ? 'BUTTON' : 'VOICE'));
+    meta.append(make('span', '', time(event.at)), make('strong', 'intent', human(event.action || event.intent)), make('span', '', human(event.source).toUpperCase()));
     row.append(meta, make('p', 'entry-text', `${human(event.phase_before)} → ${human(event.phase_after)}`));
     if (event.input) row.append(make('p', 'entry-detail', `Input: ${text(event.input)}`));
+    const provider = text(event.parser, 80) || 'unknown';
+    const model = text(event.model, 160);
+    row.append(make('p', 'entry-detail', `Decision: ${provider}${model ? ` / ${model}` : ''}`));
+    if (Array.isArray(event.prompt_origins) && event.prompt_origins.length) row.append(make('p', 'entry-detail', `Speech source: ${event.prompt_origins.map((v) => text(v, 40)).join(', ')}`));
     if (event.reason) row.append(make('p', 'entry-detail', text(event.reason, 1000)));
     if (Array.isArray(event.prompts) && event.prompts.length) row.append(make('p', 'entry-detail', `Prompts: ${event.prompts.map((v) => text(v, 80)).join(', ')}`));
     appendBounded($('decisions'), row);
     $('stat-decision').textContent = number(event.elapsed_ms) === null ? '—' : `${event.elapsed_ms.toFixed(1)} ms`;
-    log(`Intent: ${human(event.intent)}; ${human(event.phase_before)} → ${human(event.phase_after)}. ${text(event.reason, 500)}`, '', event.at);
+    log(`Action (${provider}): ${human(event.action || event.intent)}; ${human(event.phase_before)} → ${human(event.phase_after)}. ${text(event.reason, 500)}`, '', event.at);
   }
 
   function handleEvent(event) {
@@ -499,8 +525,12 @@
         log(`AssemblyAI Termination acknowledged: ${seconds(event.audio_duration_seconds)} audio; ${seconds(event.session_duration_seconds)} connected.`, '', event.at); break;
       case 'decision': decision(event); break;
       case 'prompt':
-        $('prompt-key').textContent = text(event.key, 100) || '—'; $('current-prompt').textContent = text(event.text);
-        log(`Prompt ${text(event.key, 100)}: ${text(event.text, 1200)}`, '', event.at); break;
+        $('prompt-key').textContent = `${text(event.key, 100) || '—'} · ${text(event.origin, 40) || 'source unavailable'}`;
+        $('latest-response').textContent = text(event.text);
+        if (!['lesson', 'closing', 'done'].includes(runtime.state?.phase) || !runtime.state?.current_question || runtime.state?.facilitation_mode !== 'generative') {
+          $('current-prompt').textContent = text(event.text);
+        }
+        log(`Prompt ${text(event.key, 100)} (${text(event.origin, 40) || 'source unavailable'}): ${text(event.text, 1200)}`, '', event.at); break;
       case 'tts':
         $('stat-first').textContent = seconds(event.first_audio_seconds);
         $('stat-synthesis').textContent = seconds(event.synthesis_seconds); $('stat-audio').textContent = seconds(event.audio_seconds);
@@ -524,13 +554,16 @@
 
   function renderGuide() {
     const proof = $('mode').value === 'assemblyai-proof';
-    $('proof-notice').hidden = !proof;
     const english = $('mode').value === 'assemblyai-english';
+    $('proof-notice').hidden = !proof && !english;
+    $('proof-notice').textContent = english
+      ? 'ENGLISH DBS · HUMAN IDENTITY UNVERIFIED. Self-reported names and provisional speaker-label bindings are separate. Use Pause to interrupt reading.'
+      : 'ASR PROOF · HUMAN IDENTITY UNVERIFIED. Speaker labels may change. A language code does not identify a person or every phrase in a switched sentence. Three-minute limit; stop promptly.';
     $('language').querySelector('[value=en]').textContent = english ? 'English · NIV' : 'English · NLT';
     $('language').disabled = runtime.active || english;
     if (english) $('language').value = 'en';
     if (english) {
-      $('provider-description').textContent = 'Speech goes to AssemblyAI; spoken prompts go to ElevenLabs. William uses this active Codex session for facilitation. Scripture comes from the official YouVersion Platform API. Speech stays in session memory. Normal provider retention applies.';
+      $('provider-description').textContent = 'Speech goes to AssemblyAI; spoken prompts go to ElevenLabs. Participant transcripts, names and recent context go to OpenRouter and its model provider for conversational facilitation; an explicitly configured Codex test bridge keeps decisions local. Scripture comes from the official YouVersion Platform API. Speech stays in session memory. Normal provider retention applies.';
       $('language-note').textContent = 'English only · NIV (YouVersion version 111, Biblica) · one room microphone.';
       $('quick-guide').replaceChildren();
       for (const phrase of ['Introduce yourself and share what you are thankful for.', 'Ask naturally to continue, go back, repeat, pause or read the passage.', 'Use Pause to interrupt reading; Resume continues from the saved place.']) $('quick-guide').append(make('p', 'small', phrase));
@@ -538,7 +571,7 @@
     }
     $('provider-description').textContent = proof
       ? 'Microphone speech goes to AssemblyAI for transcription and speaker labels. Human identity is UNVERIFIED. This app keeps speech in page/server memory and does not save audio or transcripts automatically. Normal provider retention applies. This proof has no translation or spoken facilitation.'
-      : 'Microphone speech goes to Speechmatics for session speaker recognition. Spoken output, including names, goes to ElevenLabs. This browser path uses rules; participant turns are not sent to a model API. Normal provider retention applies. Audio and transcripts are not saved automatically.';
+      : 'Microphone speech goes to Speechmatics for session speaker recognition. Spoken output, including names, goes to ElevenLabs. In generative mode, participant transcripts, names and recent context go to OpenRouter and its model provider. Rules mode keeps browser decisions local. Normal provider retention applies. Audio and transcripts are not saved automatically.';
     if (proof) {
       $('language-note').textContent = 'EN/TR language bias with code-switching · one shared mic · 180-second limit · no Scripture in this proof.';
       $('quick-guide').replaceChildren();
@@ -548,15 +581,17 @@
       return;
     }
     const spanish = $('language').value === 'es';
+    const rules = runtime.state?.facilitation_mode === 'rules';
     $('guide-locale').textContent = spanish ? 'ES' : 'EN';
     $('language-note').textContent = spanish ? 'Génesis 1:1–25 · NVI. A participant reads unless an authorized passage is configured.' : 'Genesis 1:1–25 · English NLT passage.';
     const rows = spanish ? [
-      ['Presentarse', '“Me llamo Josh y estoy agradecido por…”'], ['Confirmar', 'La misma persona dice “Sí” o “No”.'], ['Grupo', '“William, ya estamos todos.”'], ['Avanzar', '“William, siguiente pregunta.” Luego confirma.'], ['Repetir', '“William, repite.”'], ['Pasaje', '“William, lee el pasaje otra vez.”'], ['Pausar', '“William, pausa.” / “William, continúa.”'], ['Terminar', '“William, detente.”'],
+      ['Presentarse', '“Me llamo Josh y estoy agradecido por…”'], [rules ? 'Confirmar' : 'Aclarar si hace falta', rules ? 'La misma persona dice “Sí” o “No”.' : 'Si William pregunta, confirma o corrige tu nombre: “Así es” / “Soy Ana”.'], ['Grupo', rules ? '“William, ya estamos todos.”' : '“William, todos hemos compartido; estamos listos para la siguiente pregunta.”'], ['Avanzar', rules ? '“William, siguiente pregunta.” Luego confirma.' : '“William, siguiente pregunta.” Avanza directamente.'], ['Repetir', '“William, repite.”'], ['Pasaje', '“William, lee el pasaje otra vez.”'], ['Pausar', '“William, pausa.” / “William, continúa.”'], ['Terminar', '“William, detente.”'],
     ] : [
-      ['Introduce', '“My name is Josh, and I’m thankful for…”'], ['Confirm', 'The same person says “Yes” or “No”.'], ['Group', '“William, everyone is here.”'], ['Continue', '“William, next question.” Then confirm.'], ['Repeat', '“William, repeat.”'], ['Passage', '“William, read the passage again.”'], ['Pause', '“William, pause.” / “William, resume.”'], ['Finish', '“William, stop.”'],
+      ['Introduce', '“My name is Josh, and I’m thankful for…”'], [rules ? 'Confirm' : 'Clarify if needed', rules ? 'The same person says “Yes” or “No”.' : 'If William asks, confirm or correct your own name: “That’s me” / “It’s Anna”.'], ['Group', rules ? '“William, everyone is here.”' : '“William, everyone has shared; we’re ready for the next question.”'], ['Continue', rules ? '“William, next question.” Then confirm.' : '“William, next question.” Advances directly.'], ['Repeat', '“William, repeat.”'], ['Passage', '“William, read the passage again.”'], ['Pause', '“William, pause.” / “William, resume.”'], ['Finish', '“William, stop.”'],
     ];
     $('quick-guide').replaceChildren();
     for (const [label, phrase] of rows) { const row = make('div', 'guide-row'); row.append(make('span', '', label), make('strong', '', phrase)); $('quick-guide').append(row); }
+    if (!rules) $('quick-guide').append(make('p', 'small muted guide-note', spanish ? 'William puede invitar a continuar tras unos 7 segundos de silencio; espera a que el grupo diga que está listo.' : 'After about 7 seconds of silence, William can give a brief nudge. Tell him when the group is ready to continue.'));
     $('quick-guide').append(make('p', 'small muted guide-note', spanish ? 'Hablen de uno en uno, unos 20 segundos al presentarse. Se necesitan al menos 5 segundos de voz reconocida. El silencio no avanza la lección.' : 'Speak one at a time. Aim for about 20 seconds when introducing yourself; at least 5 seconds of recognized speech are needed. Silence never advances the lesson.'));
   }
 

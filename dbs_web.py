@@ -8,7 +8,6 @@ are written to disk; debug events go exclusively to the owning WebSocket.
 from __future__ import annotations
 
 import asyncio
-import copy
 import json
 import logging
 import os
@@ -23,12 +22,14 @@ from livekit.agents import stt
 from dbs_agent import (
     DBSController,
     configured_lesson,
+    conversation_controller,
+    facilitation_mode,
     identifiers_for,
     make_stt,
     settings,
     speaker_info,
 )
-from dbs_flow import Event, Intent
+from dbs_flow import Intent
 from dbs_intents import rule_intent
 from dbs_prompts import EN, ES
 from dbs_proof import ProofSession
@@ -43,6 +44,11 @@ CONTROL_INTENTS = {
     'everyone': Intent.FINISH_ENROLLMENT, 'yes': Intent.YES, 'no': Intent.NO,
     'next': Intent.NEXT, 'repeat': Intent.REPEAT, 'scripture': Intent.SCRIPTURE,
     'pause': Intent.PAUSE, 'resume': Intent.RESUME, 'stop': Intent.STOP,
+}
+CONTROL_ACTIONS = {
+    'everyone': 'finish_enrollment', 'next': 'next', 'previous': 'previous',
+    'repeat': 'repeat', 'scripture': 'read_scripture', 'pause': 'pause',
+    'resume': 'resume', 'stop': 'stop', 'yes': 'yes', 'no': 'no',
 }
 REASONS = {
     Intent.INTRODUCE: 'Validate a stated name against real speaker enrollment; request own-voice confirmation.',
@@ -79,7 +85,11 @@ class DemoSession:
         self.ws = ws
         self.language = language
         self.config = {**settings(), 'language': language, 'stt_language': language}
-        self.controller = controller or DBSController(self.config, configured_lesson(self.config), RulesParser(), EN if language == 'en' else ES)
+        if controller is None:
+            lesson = configured_lesson(self.config)
+            controller = (conversation_controller(self.config, lesson) if facilitation_mode() == 'generative'
+                          else DBSController(self.config, lesson, RulesParser(), EN if language == 'en' else ES))
+        self.controller = controller
         self.recognizer = None
         self.stream = None
         self.queue = asyncio.Queue(maxsize=12)
@@ -120,12 +130,14 @@ class DemoSession:
     def state(self):
         flow = self.controller.flow
         return {
-            'phase': flow.phase, 'question_key': self.current_key,
-            'current_question': self.current_prompt, 'index': flow.index,
+            'phase': flow.phase, 'question_key': flow.question_key if self.controller.mode == 'generative' else self.current_key,
+            'current_question': self.controller.render_canonical_question() if self.controller.mode == 'generative' else self.current_prompt,
+            'spoken_prompt': self.current_prompt, 'index': flow.index,
             'steps': flow.steps, 'language': self.language,
             'bible': self.controller.lesson.bible,
             'scripture_mode': 'canonical_text' if self.controller.lesson.verses else 'participant_reads_NVI',
-            'parser': 'rules', 'paused': flow.paused, 'busy': self.busy,
+            'parser': self.controller.provider, 'model': self.controller.model, 'facilitation_mode': self.controller.mode,
+            'paused': flow.paused, 'busy': self.busy,
             'listen': self.stream is not None and not self.busy and flow.phase != 'done',
             'queue_depth': self.queue.qsize(), 'elapsed_seconds': round(time.monotonic() - self.started, 1),
             'roster': [{'name': p.name, 'speaker': p.speaker, 'voice_enrolled': bool(p.identifiers),
@@ -165,16 +177,29 @@ class DemoSession:
         self.stream.push_frame(rtc.AudioFrame(data=pcm, sample_rate=SAMPLE_RATE, num_channels=1, samples_per_channel=len(pcm) // 2))
 
     async def handle_control(self, action):
-        if action not in CONTROL_INTENTS:
+        if action not in CONTROL_ACTIONS or (self.controller.mode == 'rules' and action == 'previous'):
             await self.fail('invalid_control', 'Unknown control.')
             return
-        intent = CONTROL_INTENTS[action]
+        intent = CONTROL_INTENTS.get(action)
         if intent == Intent.STOP:
             await self.emit('cancel_audio')
             self.closed.set()
             return
         if self.controller.flow.phase == 'confirm_name' and intent in (Intent.YES, Intent.NO):
             await self.fail('voice_confirmation_required', 'Please confirm your name with your own voice, not a button.')
+            return
+        if self.controller.mode == 'generative':
+            if action in ('yes', 'no'):
+                await self.fail('no_pending_confirmation', 'Use your own voice to confirm a name; navigation is direct.')
+                return
+            item = ('control', CONTROL_ACTIONS[action])
+            if action in ('pause', 'next', 'previous', 'repeat'):
+                await self.preempt(item)
+                return
+            if self.busy:
+                await self.fail('agent_busy', 'Wait until William finishes, or use Pause / End session.')
+                return
+            await self.enqueue(item)
             return
         if intent == Intent.PAUSE:
             await self.preempt((intent, '', '', 'button'))
@@ -281,50 +306,98 @@ class DemoSession:
         self.remaining_prompts.clear()
 
     async def process(self, item):
-        previous = copy.deepcopy(self.controller.flow)
+        previous = self.controller.snapshot()
         self.busy = True
         await self.report_state()
         started = time.perf_counter()
         try:
+            if item != 'idle':
+                self.nudged = False
             if item == 'opening':
-                prompts = self.controller.flow.start()
+                prompts = await self.controller.start()
             elif item == 'idle':
-                if self.human_speaking or not self.queue.empty():
+                if (self.human_speaking or not self.queue.empty()
+                        or time.monotonic() - self.last_activity < self.controller.idle_seconds):
                     return
-                prompts = self.controller.flow.idle()
-            else:
-                intent, name, text, source = item
-                speaker, solo = speaker_info(text)
-                ids = ()
-                if source == 'voice' and intent == Intent.INTRODUCE and speaker and solo and self.durations.get(speaker, 0) >= 5:
-                    ids = identifiers_for(await self.recognizer.get_speaker_ids(), speaker)
-                prompts = self.controller.flow.handle(Event(intent, speaker, name, ids, solo))
-                await self.emit('decision', input=text or f'Button: {intent.value}', source=source,
-                                intent=intent.value, name=name, phase_before=previous.phase,
-                                phase_after=self.controller.flow.phase, prompts=[p.key for p in prompts],
-                                parser='rules', elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
-                                reason=REASONS[intent])
-                if intent == Intent.RESUME and any(p.key == 'resumed' for p in prompts):
+                prompts = await self.controller.idle()
+            elif isinstance(item, tuple) and len(item) == 2 and item[0] == 'control':
+                action = item[1]
+                prompts = self.controller.control(action)
+                if action in ('next', 'previous', 'repeat', 'read_scripture', 'finish_enrollment'):
+                    self.resume_prompts = []
+                if action == 'resume':
                     prompts += self.resume_prompts
                     self.resume_prompts = []
+                await self.emit('decision', input=f'Button: {action}', source='button', action=action, intent=action,
+                                phase_before=previous[0]['phase'], phase_after=self.controller.flow.phase,
+                                prompts=[p.key for p in prompts], prompt_origins=[self.controller.prompt_origin(p) for p in prompts],
+                                parser='deterministic', model='', elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
+                                reason='Apply the selected session control directly.')
+            else:
+                intent, _name, text, source = item
+                speaker, solo = speaker_info(text)
+                ids = ()
+                enrolling = self.controller.flow.phase in ('introductions', 'confirm_name')
+                urgent = intent in (Intent.STOP, Intent.PAUSE, Intent.SAFETY)
+                if source == 'voice' and not urgent and enrolling and speaker and speaker != 'UU' and solo and self.durations.get(speaker, 0) >= 5:
+                    ids = identifiers_for(await self.recognizer.get_speaker_ids(), speaker)
+                if source == 'button' or urgent:
+                    prompts = self.controller.control(intent.value)
+                else:
+                    prompts = await self.controller.accept(text, speaker=speaker, identifiers=ids, solo=solo, source=source)
+                decision = self.controller.last_decision
+                action = decision.action if decision else intent.value
+                await self.emit('decision', input=text or f'Button: {intent.value}', source=source,
+                                action=action, intent=action, name='', phase_before=previous[0]['phase'],
+                                phase_after=self.controller.flow.phase, prompts=[p.key for p in prompts],
+                                prompt_origins=[self.controller.prompt_origin(p) for p in prompts],
+                                parser='deterministic' if urgent or source == 'button' else self.controller.provider,
+                                model=self.controller.model if not urgent and source != 'button' else '',
+                                elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
+                                reason=decision.note if self.controller.mode == 'generative' and decision else REASONS[intent])
+                if action in ('next', 'previous', 'repeat', 'read_scripture', 'finish_enrollment'):
+                    self.resume_prompts = []
+                if action == 'resume':
+                    prompts += self.resume_prompts
+                    self.resume_prompts = []
+            if item in ('opening', 'idle'):
+                decision = self.controller.last_decision
+                action = decision.action if decision else item
+                await self.emit('decision', input='', source=item, action=action, intent=action,
+                                phase_before=previous[0]['phase'], phase_after=self.controller.flow.phase,
+                                prompts=[p.key for p in prompts], prompt_origins=[self.controller.prompt_origin(p) for p in prompts],
+                                parser=self.controller.provider, model=self.controller.model,
+                                elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
+                                reason=decision.note if self.controller.mode == 'generative' and decision else '')
             await self.speak(prompts)
+            self.controller.complete_playback(prompts)
         except asyncio.CancelledError:
             # Interruption preserves the selected stage; resume replays remaining
             # canonical prompts instead of skipping them or advancing twice.
             raise
         except Exception as exc:  # noqa: BLE001 -- transactional turn rollback on provider/playback failure
-            self.controller.flow = previous
+            self.controller.restore(previous)
             self.remaining_prompts.clear()
             await self.emit('cancel_audio')
             logger.warning('DBS web turn failed: %s', type(exc).__name__)
-            await self.fail('turn_failed', 'Speech synthesis or phone playback failed. State was rolled back; please end and restart.', fatal=True)
+            await self.fail('turn_failed', 'Facilitation or speech playback failed. State was restored; please end and restart.', fatal=True)
         finally:
             self.busy = False
             self.last_activity = time.monotonic()
             if not self.closed.is_set():
                 await self.report_state()
-                await self.emit('status', stage='paused' if self.controller.flow.paused else 'listening',
-                                message='Paused; say William, resume or use the Resume button.' if self.controller.flow.paused else 'Listening. Speak one at a time; say your name and share for at least five seconds.')
+                flow = self.controller.flow
+                if flow.paused:
+                    message = 'Paused; say William, resume or use the Resume button.'
+                elif self.controller.mode == 'generative' and flow.phase == 'confirm_name':
+                    message = 'Listening for the same person to clarify their name.'
+                elif self.controller.mode == 'generative' and flow.phase == 'introductions':
+                    message = 'Listening for names and thankfulness. When everyone has shared, tell William you are ready for the next question.'
+                elif self.controller.mode == 'generative':
+                    message = 'Listening. Share or pass; tell William when the group is ready for the next question.'
+                else:
+                    message = 'Listening. Speak one at a time; say your name and share for at least five seconds.'
+                await self.emit('status', stage='paused' if flow.paused else 'listening', message=message)
 
     async def consume(self):
         while not self.closed.is_set():
@@ -351,10 +424,13 @@ class DemoSession:
                 await self.fail('session_limit', 'One-hour demo limit reached. Start a fresh session.', fatal=True)
             if now - self.last_input > 40:
                 await self.fail('microphone_stalled', 'No audio has arrived for 40 seconds. Keep this page foreground and restart.', fatal=True)
-            if not self.busy and not self.human_speaking and not self.nudged and self.queue.empty() and now - self.last_activity > 25:
+            flow = self.controller.flow
+            idle_phases = ('introductions', 'confirm_name', 'lesson') if self.controller.mode == 'generative' else ('lesson',)
+            if (not self.busy and not self.human_speaking and not self.nudged and self.queue.empty()
+                    and now - self.last_activity >= self.controller.idle_seconds
+                    and flow.phase in idle_phases and not flow.paused):
                 self.nudged = True
-                if self.controller.flow.phase == 'lesson' and not self.controller.flow.paused:
-                    await self.enqueue('idle')
+                await self.enqueue('idle')
 
     async def run(self):
         try:
@@ -390,15 +466,22 @@ class DemoSession:
             if self.active:
                 await asyncio.gather(self.active, return_exceptions=True)
             self.stream = None
-            if self.recognizer:
-                await self.recognizer.aclose()
-            self.controller.flow.roster.clear()
-            self.controller.flow.pending = None
-            self.turn_parts.clear()
-            self.durations.clear()
-            self.remaining_prompts.clear()
-            self.resume_prompts.clear()
-            await self.controller.parser.close()
+            try:
+                if self.recognizer:
+                    await self.recognizer.aclose()
+            except Exception as exc:  # noqa: BLE001 -- close the other clients even if STT cleanup fails
+                logger.warning('DBS STT cleanup failed: %s', type(exc).__name__)
+            finally:
+                self.controller.flow.roster.clear()
+                self.controller.flow.pending = None
+                self.turn_parts.clear()
+                self.durations.clear()
+                self.remaining_prompts.clear()
+                self.resume_prompts.clear()
+                try:
+                    await self.controller.close()
+                except Exception as exc:  # noqa: BLE001 -- local state is cleared; still release the browser
+                    logger.warning('DBS facilitator cleanup failed: %s', type(exc).__name__)
             if not self.ws.closed:
                 await self.emit('cancel_audio')
                 await self.emit('ended', message='Session ended. Session-only speaker bindings cleared; close/clear the page to remove its transcript.')
@@ -425,7 +508,7 @@ def create_app(*, origins=None, harness=None, prepare_english=False):
             'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
             'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY',
             'Permissions-Policy': 'microphone=(self), camera=(), geolocation=()',
-            'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+            'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
         })
         return response
 
@@ -439,7 +522,8 @@ def create_app(*, origins=None, harness=None, prepare_english=False):
                                   'active_sessions': len(sessions), 'max_sessions': MAX_SESSIONS,
                                   'transport': 'wss-pcm-livekit-stt', 'languages': ['en', 'es'],
                                   'proof_mode': 'assemblyai-proof', 'proof_languages': ['en', 'tr'],
-                                  'english_mode': 'assemblyai-english' if harness else None,
+                                  'english_mode': 'assemblyai-english',
+                                  'english_facilitator': 'codex-session' if harness else 'configured',
                                   'isolated_worktree': ROOT.parent.name == '.worktrees'})
 
     async def asset(request):
@@ -490,8 +574,8 @@ def create_app(*, origins=None, harness=None, prepare_english=False):
                             await ws.send_json({'type': 'error', 'code': 'capacity', 'message': 'Three demo sessions are already active. End one and retry.', 'fatal': True})
                             break
                         if mode == 'assemblyai-english':
-                            if harness is None or data.get('language') != 'en':
-                                raise ValueError('English harness is unavailable')
+                            if data.get('language') != 'en':
+                                raise ValueError('English mode requires English')
                             from dbs_english import EnglishSession
                             session = EnglishSession(ws, harness, prepared=prepared_english if time.monotonic()-prepared_at < 300 else None)
                         else:
@@ -554,7 +638,7 @@ def create_app(*, origins=None, harness=None, prepare_english=False):
         prepared_english = await asyncio.wait_for(asyncio.to_thread(build_english_lesson), 60)
         prepared_at = time.monotonic()
 
-    if prepare_english and harness:
+    if prepare_english:
         app.on_startup.append(prepare)
     app.on_shutdown.append(shutdown)
     return app
@@ -564,4 +648,5 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING)
     # No access logs: URLs and participant activity do not belong in the journal.
     from dbs_harness import HarnessBroker
-    web.run_app(create_app(harness=HarnessBroker.local(), prepare_english=True), host='127.0.0.1', port=int(os.getenv('DBS_WEB_PORT', '8094')), access_log=None)
+    broker = HarnessBroker.local() if os.getenv('DBS_ENGLISH_FACILITATOR', 'configured') == 'codex-session' else None
+    web.run_app(create_app(harness=broker, prepare_english=True), host='127.0.0.1', port=int(os.getenv('DBS_WEB_PORT', '8094')), access_log=None)

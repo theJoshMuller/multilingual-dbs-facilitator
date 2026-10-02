@@ -1,10 +1,12 @@
 """Bounded real provider transport check with Chromium's synthetic microphone.
 
-The prepared opening needs no live decision-queue reply. Later facilitation needs the active Codex session. This does not prove
+Run against DBS_ENGLISH_FACILITATOR=codex-session for verification without an external model call.
+The prepared opening needs no decision-queue reply. This does not prove
 human microphone accuracy, diarization, name binding, or room echo behavior.
 """
 import asyncio
 import json
+import os
 
 from playwright.async_api import async_playwright, expect
 
@@ -39,7 +41,10 @@ async def smoke():
           };
         ''')
         try:
-            await page.goto('http://127.0.0.1:8095/dbs/', wait_until='networkidle')
+            base = os.getenv('DBS_SMOKE_BASE_URL', 'http://127.0.0.1:8095')
+            health = await (await context.request.get(base + '/health')).json()
+            assert health.get('english_facilitator') == 'codex-session', 'Run this smoke only with the explicit native test bridge'
+            await page.goto(base + '/dbs/', wait_until='networkidle')
             await expect(page.locator('#mode')).to_have_value('assemblyai-english')
             assert await page.locator('#consent').count() == 0
             await page.locator('#start').click()

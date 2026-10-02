@@ -1,12 +1,73 @@
-# English DBS test handoff
+# Combined voice migration handoff
 
-The ASR foundation is published as PR #2: https://github.com/theJoshMuller/multilingual-dbs-facilitator/pull/2 (original commit 66be8b8). Compatibility merge 8cd0902 preserves newer main TTS changes; its isolated offline suite passed 152 tests. The English follow-on is draft PR #3: https://github.com/theJoshMuller/multilingual-dbs-facilitator/pull/3. Neither PR is merged or deployed. English integration is on branch `feat/assemblyai-english-dbs` in the same isolated worktree:
+[PR #3](https://github.com/theJoshMuller/multilingual-dbs-facilitator/pull/3)
+consolidates the AssemblyAI foundation in PR #2, the latest conversational
+facilitator in PR #1 (`4922cf6`), and main's v4 Turbo/Mark defaults (`c583c17`).
+See the PR for its current merge state. Integration work stays in:
 
 `/home/yeshu/projects/multilingual-dbs-facilitator/.worktrees/assemblyai-multilingual`
 
-Local test: http://127.0.0.1:8095/dbs/. Exact process checks confirmed this port belongs to the worktree; the separate live service remains on 8094. Existing main-checkout edits/research and concurrent work remain untouched. The English follow-on remains unmerged and awaits the expanded-opening human trial. The credentials, virtualenv, logs and browser profiles remain ignored inside the worktree.
+Branch: `integrate/voice-migrations`. The local combined test moved to
+http://127.0.0.1:8097/dbs/ because the independent Waha catalog worktree now owns
+8095. The canonical main checkout, its staged edits/research, other worktrees,
+live service, and Tailscale configuration were not changed by this integration.
+Credentials, virtualenv, logs and browser profiles remain ignored in this worktree.
 
-The mode uses one Universal-3.6 Pro English-biased stream, existing browser PCM, the provider-neutral controller/navigation from the generative branch, and direct in-session Codex decisions via a private loopback queue. Josh explicitly selected main's ElevenLabs v4 Turbo / Mark defaults for this follow-on. Earlier playback evidence used Flash. No external model API was called. This test requires the active Codex session. Ordinary English contributions are not translated. Consent belongs to the organizer before startup; no app checkbox or agent consent dialogue is used.
+English DBS now defaults to PR #1's configured OpenRouter provider. It no longer
+requires an active Codex session. `DBS_ENGLISH_FACILITATOR=codex-session` explicitly
+selects the private native verification bridge. All verification here uses injected
+or native decisions: no external model API was called. The runtime continues to
+use one AssemblyAI Universal-3.6 Pro stream, browser 16 kHz mono PCM, official NIV,
+and v4 Turbo/Mark. Ordinary English contributions are not translated. The original
+Speechmatics mode and the ASR-only EN/TR proof remain selectable.
+
+Josh's exact approved expanded welcome plays once without a model request.
+Clear own-name contributions are recorded silently, uncertain names get a natural
+clarification, and a final introduction may include readiness for the next question.
+Seven-second silence allows one optional nudge and never advances the study.
+Self-reported names and provisional same-label bindings are distinct; human identity
+remains **UNVERIFIED**. Revised, PENDING, short, low-confidence and overlapping
+turns cannot establish a voice binding. Pause/Resume preserves the study position;
+AssemblyAI voice wake interruption remains pending. Consent belongs to the human
+organizer before startup, outside the agent UX.
+
+Integration verification: 250 offline Python tests, five Node client checks,
+Ruff, both JavaScript syntax checks and `git diff --check`. The Chromium mocked
+WebSocket/PCM check passed with one actual playback acknowledgment, zero provider
+calls and zero JavaScript errors. Read-only review reproduced and corrected
+uncertain-name blocking, unassigned-name locks, revised-name ownership, stale
+partials/older finals, and final completion while paused. These regressions were
+seen failing before their fixes. Remaining individual speech bugs are deferred
+at Josh's request; the combined human English walkthrough is still needed.
+
+Commands from this worktree:
+
+```sh
+.venv/bin/python -E -m unittest -q
+.venv/bin/ruff check dbs_*.py test_dbs*.py smoke_dbs.py harness_bridge.py smoke_english*.py
+node tests/test_dbs_client.cjs
+node --check web/app.js
+node --check web/pcm-worklet.js
+git diff --check
+DBS_SMOKE_BASE_URL=http://127.0.0.1:8097 .venv/bin/python -E smoke_english_playback.py
+```
+
+The real opening smoke requires the explicit native test bridge; it fails before
+starting if the server is configured for an external model. Its output and test
+logs stay ignored locally. Synthetic microphones prove transport and cleanup,
+not human diarization, voice identity, microphone accuracy or echo performance.
+
+The final bounded opening check used real YouVersion/AssemblyAI/ElevenLabs with
+Chromium's synthetic microphone and the explicit native bridge. NIV 111 was
+ready at 0.001s; the one exact f.001 opening arrived as audio at 5.335s. Stop
+received Termination acknowledgment after 34s connected/34s audio, released the
+microphone, and produced no JavaScript or provider errors. There was one prompt,
+one audio message, and no external model request. This is transport/cleanup
+evidence; the earlier consenting Josh/Kami EN/TR test remains the separate human
+ASR evidence, with identity, within-sentence switching and overlap unverified.
+
+The following sections retain earlier source and test evidence; their older
+branch/merge/provider status is historical, superseded by this consolidation.
 
 Scripture is exact official YouVersion NIV111, New International Version2011, publisher Biblica. All 25 individual Genesis1:1–25 verses and attribution were verified live, with all 11 full original English Waha questions. Only safe metadata was retained; the YVP key remains in the YouVersion project. The session fails closed for missing source text.
 

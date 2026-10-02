@@ -1,5 +1,6 @@
 """Prototype UI copy, separate from unmodified Waha curriculum questions."""
 EN = {
+    "group_welcome": "Welcome to Discovering God! Let's have everyone share their name and what they're thankful for since we last met, one at a time. When the last person has shared, let me know everyone has spoken and you're ready for the next question.",
     "welcome": "Welcome to a new session of Discovering God! Let's begin by catching up on how we're doing. First, can you say your name so I can recognize who is who? Then, based on what's happened to you since last time we met, what is something that you're thankful for?",
     "text_notice": 'This is a text rehearsal, not voice enrollment. Introduce one person per message. After each name is confirmed, say: William, everyone is here.',
     "confirm_name": 'I heard {name}. Is that your name? Please answer yes or no yourself.',
@@ -28,6 +29,7 @@ EN = {
 }
 
 ES = {
+    "group_welcome": '¡Bienvenidos a Descubriendo a Dios! Compartamos, de uno en uno, nuestro nombre y algo por lo que estamos agradecidos desde la última reunión. Cuando termine la última persona, díganme que todos han compartido y están listos para la siguiente pregunta.',
     "welcome": '¡Bienvenidos a una nueva sesión de Descubriendo a Dios! Comencemos poniéndonos al día sobre cómo estamos. Primero, ¿puedes decir tu nombre para que pueda reconocer quién es quién? Luego, pensando en lo que te ha pasado desde la última vez que nos reunimos, ¿por qué estás agradecido?',
     "text_notice": 'Este es un ensayo por texto, no una inscripción de voces. Presenten a una persona por mensaje. Después de confirmar los nombres, digan: William, ya estamos todos.',
     "confirm_name": 'Escuché {name}. ¿Ese es tu nombre? Por favor, responde tú mismo sí o no.',

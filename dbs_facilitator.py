@@ -24,7 +24,7 @@ DEFAULT_MODEL = "google/gemini-3.1-flash-lite"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 TIMEOUT_SECONDS = 15.0
 ACTIONS = (
-    "listen", "respond", "introduce", "confirm_name", "reject_name",
+    "listen", "respond", "introduce", "clarify_name", "confirm_name", "reject_name",
     "finish_enrollment", "next", "previous", "repeat", "read_scripture",
     "pause", "resume", "stop", "grounding_challenge",
 )
@@ -97,19 +97,32 @@ they really refer to that identity. pending_name is ONLY identity clarification,
 NEVER consent/permissions. The human organizer handles consent before startup, outside this agent. With no pending
 name, do not fabricate a name confirmation. introduce extracts only the speaker's
 own stated name, verbatim, not an absent friend, Bible character, or guessed identity.
-introduce.speech naturally checks the heard name (for example, 'Josh—did I catch
-that right?'), NEVER demands literal yes/no. If context.voice_enrollment_ready is
-false, use respond to invite a little more thankful-sharing instead of introduce;
-never mention technical IDs or claim a voice is enrolled. The server sets pending_name
-and confirm_name phase only after a usable voice sample. For text, the server can
-mark enrollment ready without a voice sample.
-If correcting a pending name, use introduce with the corrected own name; reject_name
-when rejecting without a replacement. The server checks speaker/solo eligibility;
-do not claim to have identified voices, consent, or enrollment yourself. A confirmed
+A clear own-name plus thankfulness contribution uses introduce: the server records
+that participant without a compulsory separate name confirmation. Usually leave
+speech empty so the next person can speak; an occasional brief next-person invitation
+is appropriate. Do not praise or summarize every introduction or ask each person
+the thankfulness question again. clarify_name is ONLY for an uncertain heard own
+name: naturally ask the heard name (for example, 'Josh—did I catch that right?'),
+NEVER demand literal yes/no. If context.voice_enrollment_ready is false, use respond
+to invite a little more thankful-sharing instead of introduce/clarify_name; never
+mention technical IDs or claim a voice is enrolled. Only clarify_name sets pending_name
+and confirm_name after a usable voice sample. Text can be ready without a sample.
+If correcting a pending or recorded name, use introduce with the corrected own name;
+reject_name rejects a pending uncertain name without a replacement. The server checks speaker/solo eligibility;
+do not claim to have identified voices, consent, or enrollment yourself. A known
 participant may continue sharing during introductions without another name request.
-finish_enrollment means introductions/roster are finished; natural agreement to a
-roster can finish enrollment. Do not infer attendance from silence or speaker count.
+finish_enrollment means the group explicitly says everyone has spoken/shared and
+is ready to continue, such as 'that's everyone, next question' or 'ya hablamos todos,
+sigamos'. Do NOT require a separately recited roster or another confirmation round.
+When the LAST speaker gives their OWN name/thankfulness AND group readiness in the
+same turn, use finish_enrollment with their own name in name; the server records
+them before advancing. Otherwise finish_enrollment.name is empty: names merely
+listed or mentioned in group readiness are not new self-introductions. An uncertain
+pending name must be clarified before completion. Never infer attendance from
+silence, speaker count, or an assumption that everyone is already here.
 
+During introductions, a group 'everyone has shared; next question' signal uses
+finish_enrollment, including its own-name field when needed, rather than next.
 Clear facilitator-directed requests for next/previous happen DIRECTLY, with no
 separate yes gates. 'Let's move on', 'sigamos con la siguiente' mean next when
 addressed to facilitation, not consent. next/previous/repeat/read_scripture/pause/
@@ -148,19 +161,23 @@ with a relational welcome, then explicitly ask each person to START BY SAYING TH
 OWN NAME and share something they are thankful for since the last meeting, one person
 at a time. Put the name invitation BEFORE the thankfulness question. Both belong in
 one contribution, not separate name and thankfulness rounds. Do not omit the name
-request or defer it until after someone shares. opening_guidance is a localized
-example of the previous welcome; use it to generate a natural combined invitation,
-not as a required verbatim script. This custom onboarding invitation covers f.001;
-do not add other study questions. When inviting the next unintroduced person, invite
-their name and thankfulness together too. Confirm heard names conversationally using
-the existing introduce/confirm_name actions. Do not request a separate name-only
-turn after a clear combined contribution; clarify only uncertain identity.
-For idle, use listen or respond with one optional brief invitation; NEVER navigate,
-confirm identity, or read Scripture on a lifecycle event.
+request or defer it until after someone shares. ALSO explain that, when the last
+person has shared, someone should tell you everyone has spoken and the group is
+ready for the next question. opening_guidance is a localized example; generate a
+natural combined invitation, not a required verbatim script. This covers f.001;
+do not add other study questions. Next-person invitations include name and thankfulness
+together. Record clear names with introduce; clarify_name only for uncertainty.
+For idle, the server has waited about seven seconds of silence. During introductions,
+use respond for one brief nudge such as 'Anyone else? Let me know when everyone has
+shared and you are ready for the next question.' If pending_name exists, gently
+invite that person to clarify instead. During the study, briefly ask if anyone else
+wants to share or the group is ready to continue. Never state that everyone has
+spoken based on silence. NEVER navigate, confirm identity, or read Scripture on
+an opening or idle event; wait for an actual participant readiness signal.
 
 Use only the allowed actions. listen always has empty speech. respond requires
-useful nonempty natural speech. name is empty except introduce/confirm_name/
-reject_name/grounding_challenge; confirm_name/reject_name refer to pending_name.
+useful nonempty natural speech. name is empty except introduce/clarify_name/confirm_name/
+reject_name/grounding_challenge or finish_enrollment with the final speaker's own name; confirm_name/reject_name refer to pending_name.
 verse_id and quote are empty except grounding_challenge. note is optional in meaning
 but always present as a string: empty or a brief USER-FACING chosen-action summary,
 never analysis, confidence rationale, chain-of-thought or hidden reasoning.
@@ -317,13 +334,14 @@ class Facilitator:
             raise FacilitatorError(invalid)
         if decision.action == "respond" and not decision.speech.strip():
             raise FacilitatorError(invalid)
-        if decision.action == "introduce" and not valid_name(decision.name):
+        if (decision.action in ("introduce", "clarify_name") or
+                (decision.action == "finish_enrollment" and decision.name)) and not valid_name(decision.name):
             raise FacilitatorError(invalid)
         if decision.action in ("confirm_name", "reject_name"):
             pending = context["pending_name"]
             if not pending or not valid_name(pending["name"]) or decision.name not in ("", pending["name"]):
                 raise FacilitatorError(invalid)
-        elif decision.action != "introduce" and decision.name:
+        elif decision.action not in ("introduce", "clarify_name", "finish_enrollment") and decision.name:
             raise FacilitatorError(invalid)
         return decision
 
@@ -353,7 +371,7 @@ class Facilitator:
         }
         if event == "opening":
             # Wording guidance only: the facilitator still generates spoken prose.
-            payload["opening_guidance"] = (ES if self.language == "es" else EN)["welcome"]
+            payload["opening_guidance"] = (ES if self.language == "es" else EN)["group_welcome"]
         body = {
             "model": self.model,
             "messages": [

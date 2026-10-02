@@ -93,3 +93,7 @@ The feature branch also passes its documented Ruff command. Tests inject model
 decisions or mock HTTP/recognition/speech transports; no model or speech provider
 was called for this work. This is merge and state-machine evidence, not a real
 group, multilingual recognition, translation-quality, or latency validation.
+
+## Subsequent onboarding changes in the feature branch
+
+The source-only merge snapshot above predates the buffered-audio startup fix and group-readiness onboarding follow-ups. Use the current feature head when merging. Clear self-introductions now register immediately with real solo evidence; clarify_name reserves optional pending clarification. Group completion may include the final speaker's own name in finish_enrollment. The generative controller exposes idle_seconds=7 and accepts idle events during introductions as well as the study; rules remain at 25 seconds. Preserve these localized runtime timer changes when resolving shared browser/console files. The prior 180-test combined-snapshot result is historical evidence, not verification of these follow-ups against later migration changes.

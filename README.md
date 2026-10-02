@@ -79,21 +79,33 @@ allow the exact origin through `DBS_WEB_ORIGINS`; the server binds to loopback.
 
 ## How a session works
 
-The generated opening is prompted to invite each person to begin with their name
-and share what they are thankful for in the same contribution. It uses the earlier
-localized welcome as wording guidance. Each person confirms their own
-name naturally: “that's me,” “you got it,” or “así es.” A diarization label alone
-cannot bind a name; voice enrollment requires usable opaque recognition evidence
-and the same solo speaker's confirmation. The voice adapters collect evidence
-from sufficiently long recognized introductions (at least five seconds).
+The generated opening is prompted to invite everyone to share their name and thankfulness in one
+contribution, then tell William when everyone has spoken and the group is ready for
+the next question. A clear self-introduction registers the person immediately;
+there is no compulsory per-person name confirmation. Uncertain names use a brief
+clarification that only the same solo speaker can confirm or correct. A diarization
+label alone cannot bind a name: voice registration still requires usable opaque
+recognition evidence from sufficiently long introductions (at least five seconds).
+An explicit self-correction of a registered name requires matching voice evidence.
 Text rehearsal deliberately bypasses voice enrollment and creates no voice profile.
+
+The LLM selects `finish_enrollment` for an explicit everyone-shared/readiness
+signal, and the server advances to the next canonical question. If the final
+person introduces themselves and gives that signal in the same contribution,
+the decision can include their own name so they are recorded before advancing.
+Silence, speaker count, or a list of other people's names does not establish that
+everyone has shared. Unresolved name clarification blocks completion.
 
 Ask William directly to move on, go back, repeat the question, read the passage,
 pause, resume, or stop. In generative mode “William, let's move on” advances
 without a separate yes gate. Buttons execute known controls without a model
 request. Rules mode retains its explicit commands and confirmation behavior.
-Silence never advances; at most one optional generated invitation is requested
-per lull. William answers group/procedure questions, while Bible-content
+In generative mode, about seven seconds of silence requests one brief generated
+nudge during introductions or the study. It does not repeat until new participant
+input or a navigation/resume control starts another lull. Pause, active speech,
+queued input and playback suppress the timer; stale queued nudges are discarded.
+The spoken nudge also needs model and TTS time. Rules mode keeps its 25-second
+timer. Silence never advances the lesson. William answers group/procedure questions, while Bible-content
 questions are directed back to the complete current source question.
 
 Browser audio is half duplex: microphone input is suppressed during William's
@@ -167,7 +179,7 @@ output, and `close()` clears session state and closes the facilitator client.
 ## Privacy and evidence
 
 Speechmatics receives microphone speech; OpenRouter receives participant turns,
-confirmed names, pending identity, study context, and the latest 16 user/assistant
+registered names, pending identity, study context, and the latest 16 user/assistant
 history entries; ElevenLabs receives spoken text, including names. Normal provider policies
 apply. Model context is bounded, not confidential from the provider.
 

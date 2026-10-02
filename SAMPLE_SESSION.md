@@ -24,51 +24,43 @@ S2, and S3; those labels alone would not be enough.
 
 ## Names and thankfulness
 
-The opening request includes the earlier localized welcome as deterministic **guidance**. William generates the spoken invitation: names come before thankfulness, both in the same contribution. This example is illustrative; a live model may vary its wording.
+The opening request includes deterministic localized **guidance** inviting the whole group and explaining how to finish this round. William generates the spoken wording. Clear self-introductions register immediately; only uncertain names enter clarification. These are illustrative injected decisions, not live model evidence.
 
-**G · William [opening / respond]:** Welcome to Discovering God! Let's catch up on how we're doing. Start by telling us your name, then share something you're thankful for since we last met. We'll hear from one person at a time.
+**G · William [opening / respond]:** Welcome to Discovering God! Let's have everyone share their name and what they're thankful for since we last met, one person at a time. When the last person has shared, let me know everyone has spoken and you're ready for the next question.
 
 **H · Anna [S1]:** I'm Anna. I'm thankful that my sister is recovering, and that we finally had time to eat together this week.
 
-**D · Recognition annotation:** The illustrative transcript initially mishears Anna as Ann; this is a transcription error, not a guessed identity.
+**D · Recognition annotation:** In this example the transcript uncertainly hears Ann. William uses `clarify_name` rather than registering a guessed identity.
 
-**G · William [introduce: Ann]:** Ann, did I catch your name correctly?
-
-**H · Anna [S1]:** Actually, Anna, with an a at the end.
-
-**G · William [introduce: Anna]:** Anna—have I got it now?
-
-**D · State:** The correction keeps only the pending S1 evidence; it does not require another voice sample or borrow someone else's.
+**G · William [clarify_name: Ann]:** Ann, did I catch your name correctly?
 
 **H · Ben [S2]:** You got it.
 
 **D · William [deterministic same-speaker guard]:** Let me hear from the person who just introduced themselves.
 
-**H · Anna [S1]:** That's me.
+**H · Anna [S1]:** Actually, Anna, with an a at the end.
 
-**G · William [confirm_name]:** Thanks, Anna. Who would like to share their name and something they are thankful for next?
+**G · William [introduce: Anna]:** Who would like to share their name and thankfulness next?
+
+**D · State:** Anna's own correction records Anna with the pending S1 evidence. No separate name-only confirmation is required. Another speaker cannot supply her correction or erase her unresolved clarification.
 
 **H · Ben [S2]:** I'm Ben. I'm thankful my new job is starting to feel less overwhelming. A colleague showed me how to finish a task I'd been stuck on.
 
-**G · William [introduce: Ben]:** Ben, did I hear your name right?
+**G · William [introduce: Ben]:** *(Silence; records Ben and leaves room for the next participant.)*
 
-**H · Ben [S2]:** You got it.
+**D · Timer:** Seven seconds of silence while listening queues one idle event. No nudge during playback, active speech, pause or queued participant input. The words below need model and speech-synthesis time in addition to the silence interval.
 
-**G · William [confirm_name]:** Who else would like to share their name and something they are thankful for?
+**G · William [idle / respond]:** Anyone else? Let me know when everyone has shared and you're ready for the next question.
 
-**H · Carla [S3]:** I'm Carla. I'm grateful my neighbor helped me carry groceries home when I hurt my ankle. It made the week easier.
+**D · State:** Still introductions; roster contains Anna and Ben. The nudge does not advance or infer that everyone has spoken. Another nudge requires new participant input or a navigation/resume control.
 
-**G · William [introduce: Carla]:** Carla, is that your name?
+**H · Carla [S3]:** I'm Carla. I'm grateful my neighbor helped me carry groceries home when I hurt my ankle. It made the week easier. I'm the last person; everyone has shared and we're ready for the next question.
 
-**H · Carla [S3]:** Yes, that's right.
+**G · William [finish_enrollment, own name: Carla]:** Let's hear how everyone is doing.
 
-**G · William [confirm_name]:** Thanks, Carla.
+**D · State:** The same decision first registers Carla with real solo voice evidence, then advances once to `f.002`. Missing or ambiguous evidence, an unresolved name, duplicate names or participant capacity block completion. A separate group-readiness turn works too. Silence alone never completes introductions.
 
-**H · Anna [S1]:** William, that's everyone: Anna, Ben, and Carla.
-
-**G · William [finish_enrollment]:** Let's hear how everyone is doing.
-
-**D · State:** Three confirmed names; no separate roster yes gate. The opening already covered thankfulness. Source `f.001` is recorded here for comparison, **not replayed**:
+The opening already covered thankfulness. Source `f.001` is recorded here for comparison, **not replayed**:
 
 **C · Reference [f.001]:** Welcome to a new session of "Discovering God". Let’s begin by catching up on how we are doing. Based on what has happened with you since the last time we met, what is something you are thankful for?
 

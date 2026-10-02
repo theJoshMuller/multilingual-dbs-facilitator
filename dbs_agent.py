@@ -131,6 +131,7 @@ def conversation_controller(config: dict, lesson: Lesson, *, text_mode: bool = F
 
 class DBSController:
     mode = "rules"
+    idle_seconds = 25.0
 
     def __init__(self, config: dict, lesson: Lesson, parser: IntentParser, prompts: dict, *, text_mode: bool = False):
         self.flow = DBSFlow(lesson.steps, text_mode=text_mode, max_people=config["people"], manual_scripture=not lesson.verses)
@@ -342,10 +343,11 @@ class DiscoveryAgent(Agent):
         try:
             if text is None:
                 # Idle work shares the sole consumer and is rechecked for staleness.
-                if self.human_speaking or not self.queue.empty() or time.monotonic() - self.last_activity < 25:
+                if self.human_speaking or not self.queue.empty() or time.monotonic() - self.last_activity < self.controller.idle_seconds:
                     return
                 prompts = await self.controller.idle()
             else:
+                self.nudged = False
                 ids = ()
                 speaker, solo = speaker_info(text)
                 intent = rule_intent(text, self.controller.flow.phase)[0]
@@ -401,9 +403,10 @@ class DiscoveryAgent(Agent):
         # One invitation after a lull, never automatic lesson advancement.
         while True:
             await asyncio.sleep(0.5)
-            if self.busy or self.human_speaking or self.nudged or not self.queue.empty():
+            if (self.busy or self.human_speaking or self.nudged or not self.queue.empty()
+                    or self.controller.flow.paused):
                 continue
-            if time.monotonic() - self.last_activity >= 25:
+            if time.monotonic() - self.last_activity >= self.controller.idle_seconds:
                 self.nudged = True
                 self.queue.put_nowait(None)
 

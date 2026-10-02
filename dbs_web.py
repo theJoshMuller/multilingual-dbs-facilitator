@@ -307,10 +307,13 @@ class DemoSession:
         await self.report_state()
         started = time.perf_counter()
         try:
+            if item != 'idle':
+                self.nudged = False
             if item == 'opening':
                 prompts = await self.controller.start()
             elif item == 'idle':
-                if self.human_speaking or not self.queue.empty():
+                if (self.human_speaking or not self.queue.empty()
+                        or time.monotonic() - self.last_activity < self.controller.idle_seconds):
                     return
                 prompts = await self.controller.idle()
             elif isinstance(item, tuple) and len(item) == 2 and item[0] == 'control':
@@ -379,8 +382,18 @@ class DemoSession:
             self.last_activity = time.monotonic()
             if not self.closed.is_set():
                 await self.report_state()
-                await self.emit('status', stage='paused' if self.controller.flow.paused else 'listening',
-                                message='Paused; say William, resume or use the Resume button.' if self.controller.flow.paused else 'Listening. Speak one at a time; say your name and share for at least five seconds.')
+                flow = self.controller.flow
+                if flow.paused:
+                    message = 'Paused; say William, resume or use the Resume button.'
+                elif self.controller.mode == 'generative' and flow.phase == 'confirm_name':
+                    message = 'Listening for the same person to clarify their name.'
+                elif self.controller.mode == 'generative' and flow.phase == 'introductions':
+                    message = 'Listening for names and thankfulness. When everyone has shared, tell William you are ready for the next question.'
+                elif self.controller.mode == 'generative':
+                    message = 'Listening. Share or pass; tell William when the group is ready for the next question.'
+                else:
+                    message = 'Listening. Speak one at a time; say your name and share for at least five seconds.'
+                await self.emit('status', stage='paused' if flow.paused else 'listening', message=message)
 
     async def consume(self):
         while not self.closed.is_set():
@@ -407,10 +420,13 @@ class DemoSession:
                 await self.fail('session_limit', 'One-hour demo limit reached. Start a fresh session.', fatal=True)
             if now - self.last_input > 40:
                 await self.fail('microphone_stalled', 'No audio has arrived for 40 seconds. Keep this page foreground and restart.', fatal=True)
-            if not self.busy and not self.human_speaking and not self.nudged and self.queue.empty() and now - self.last_activity > 25:
+            flow = self.controller.flow
+            idle_phases = ('introductions', 'confirm_name', 'lesson') if self.controller.mode == 'generative' else ('lesson',)
+            if (not self.busy and not self.human_speaking and not self.nudged and self.queue.empty()
+                    and now - self.last_activity >= self.controller.idle_seconds
+                    and flow.phase in idle_phases and not flow.paused):
                 self.nudged = True
-                if self.controller.flow.phase == 'lesson' and not self.controller.flow.paused:
-                    await self.enqueue('idle')
+                await self.enqueue('idle')
 
     async def run(self):
         try:

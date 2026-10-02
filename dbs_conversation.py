@@ -85,7 +85,7 @@ class ConversationFlow(DBSFlow):
             if action not in ('next', 'previous', 'repeat', 'read_scripture'):
                 return speech
             self.paused = False
-        if action == 'introduce':
+        if action in ('introduce', 'clarify_name'):
             if solo and self.pending and self.pending.speaker == speaker and not identifiers:
                 identifiers = self.pending.identifiers
             if not solo or not speaker or speaker == 'UU' or not valid_name(name):
@@ -93,15 +93,41 @@ class ConversationFlow(DBSFlow):
             existing = next((p for p in self.roster if p.speaker == speaker), None)
             if existing:
                 if existing.name.casefold() == name.casefold():
+                    if action == 'introduce' and self.pending and self.pending.speaker == speaker:
+                        if not (self.text_mode or set(existing.identifiers).intersection(identifiers)):
+                            return [self.words('I may have mixed up the voices. Could you clarify who is speaking?', 'Puede que haya confundido las voces. ¿Quién está hablando?')]
+                        self.pending = None
+                        if self.phase == 'confirm_name':
+                            self.phase = 'introductions'
                     return speech
-                return [self.words('I may have mixed up the voices. Could you clarify who is speaking?', 'Puede que haya confundido las voces. ¿Quién está hablando?')]
-            if len(self.roster) >= self.max_people or any(p.name.casefold() == name.casefold() for p in self.roster):
+                if not (self.text_mode or set(existing.identifiers).intersection(identifiers)):
+                    return [self.words('I may have mixed up the voices. Could you clarify who is speaking?', 'Puede que haya confundido las voces. ¿Quién está hablando?')]
+            pending_other = self.pending if self.pending and self.pending.speaker != speaker else None
+            reserved = bool(pending_other and not any(p.speaker == pending_other.speaker for p in self.roster))
+            if not existing and len(self.roster) + reserved >= self.max_people:
+                return [self.words(f'The participant limit is {self.max_people}; let us clarify the introductions already shared.', f'El límite es de {self.max_people} participantes; aclaremos las presentaciones que ya escuchamos.')]
+            if (pending_other and pending_other.name.casefold() == name.casefold()) or any(
+                    p is not existing and p.name.casefold() == name.casefold() for p in self.roster):
                 return [self.words('Could you use a distinct name so I can keep track of everyone?', '¿Puedes usar un nombre distinto para reconocer a cada persona?')]
             if not self.text_mode and not identifiers:
                 return [self.words(f'Thanks, {name}. Tell us a little more about what you are thankful for while I get familiar with your voice.', f'Gracias, {name}. Cuéntanos un poco más sobre lo que agradeces mientras reconozco tu voz.')]
-            self.pending = Participant(name, speaker, identifiers)
-            self.phase = 'confirm_name'
-            return speech or [self.words(f'{name}—did I catch your name correctly?', f'{name}, ¿entendí bien tu nombre?')]
+            person = Participant(name, speaker, identifiers)
+            if action == 'clarify_name':
+                if self.pending and self.pending.speaker != speaker:
+                    return [self.words('Let me hear from the person who just introduced themselves.', 'Escuchemos a la persona que acaba de presentarse.')]
+                self.pending = person
+                self.phase = 'confirm_name'
+                return speech or [self.words(f'{name}—did I catch your name correctly?', f'{name}, ¿entendí bien tu nombre?')]
+            # A clear self-introduction is enough; only uncertainty needs a gate.
+            if existing:
+                self.roster[self.roster.index(existing)] = person
+            else:
+                self.roster.append(person)
+            if self.pending and self.pending.speaker == speaker:
+                self.pending = None
+            if self.phase == 'confirm_name' and not self.pending:
+                self.phase = 'introductions'
+            return speech
         if action in ('confirm_name', 'reject_name'):
             if not self.pending:
                 return speech
@@ -113,11 +139,25 @@ class ConversationFlow(DBSFlow):
                 return speech
             if not self.text_mode and not self.pending.identifiers:
                 return [self.words('Tell us a little more so I can recognize your voice.', 'Cuéntanos un poco más para poder reconocer tu voz.')]
-            self.roster.append(self.pending)
+            existing = next((p for p in self.roster if p.speaker == speaker), None)
+            if not existing and len(self.roster) >= self.max_people:
+                return [self.words(f'The participant limit is {self.max_people}; let us clarify the introductions already shared.', f'El límite es de {self.max_people} participantes; aclaremos las presentaciones que ya escuchamos.')]
+            if any(p is not existing and p.name.casefold() == self.pending.name.casefold() for p in self.roster):
+                return [self.words('Could you use a distinct name so I can keep track of everyone?', '¿Puedes usar un nombre distinto para reconocer a cada persona?')]
+            if existing:
+                self.roster[self.roster.index(existing)] = self.pending
+            else:
+                self.roster.append(self.pending)
             self.pending = None
             self.phase = 'introductions'
             return speech
         if action == 'finish_enrollment':
+            if name:
+                # The final turn can contain both its own name and group readiness.
+                introduction = self.apply(replace(decision, action='introduce', speech=''),
+                                          speaker=speaker, identifiers=identifiers, solo=solo)
+                if introduction:
+                    return introduction
             if not self.roster or self.pending:
                 return [self.words('Let us finish the introductions first.', 'Terminemos primero las presentaciones.')]
             self.pending = None

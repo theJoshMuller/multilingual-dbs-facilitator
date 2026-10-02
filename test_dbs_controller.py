@@ -37,10 +37,10 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.controller.render(Prompt('scripture')), lesson().scripture)
         self.assertEqual(self.controller.prompt_origin(Prompt('scripture')), 'canonical')
 
-    async def test_three_people_natural_confirmation_and_identity(self):
+    async def test_three_people_optional_name_clarification_and_identity(self):
         for number, name in enumerate(('Ana', 'Ben', 'Cara'), 1):
             speaker = f'S{number}'
-            self.brain.decision = Decision('introduce', name=name)
+            self.brain.decision = Decision('clarify_name', name=name)
             await self.controller.accept(f'I am {name}', speaker=speaker, identifiers=(f'opaque-{number}',))
             self.brain.decision = Decision('confirm_name')
             await self.controller.accept('you got it', speaker='Other')
@@ -57,13 +57,12 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.controller.render(prompts[0]), opening)
         self.assertEqual(self.controller.prompt_origin(prompts[0]), 'generated')
         contribution = "I'm Ana. I'm thankful my sister is recovering."
-        self.brain.decision = Decision('introduce', name='Ana', speech='Ana, did I catch that right?')
+        self.brain.decision = Decision('introduce', name='Ana', speech='Who else would like to share?')
         await self.controller.accept(contribution, speaker='S1', identifiers=('opaque-1',))
         self.assertEqual(self.brain.calls[-1][0], contribution)
-        self.assertEqual(self.controller.flow.pending.name, 'Ana')
+        self.assertIsNone(self.controller.flow.pending)
+        self.assertEqual(self.controller.flow.roster[0].name, 'Ana')
         self.assertEqual(self.controller.history[-2]['text'], contribution)
-        self.brain.decision = Decision('confirm_name', speech='Who else would like to share their name and thankfulness?')
-        await self.controller.accept("That's me.", speaker='S1')
         self.assertEqual(self.controller.flow.roster[0].name, 'Ana')
         prompts = self.controller.control('finish_enrollment')
         self.assertEqual(prompts[-1].key, 'a.001')
@@ -102,8 +101,6 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.brain.decision = Decision('introduce', name='Ana')
         await controller.accept('I am Ana', source='text')
         self.assertTrue(self.brain.calls[-1][1]['voice_enrollment_ready'])
-        self.brain.decision = Decision('confirm_name')
-        await controller.accept('sounds good', source='text')
         self.assertEqual(controller.flow.roster[0].identifiers, ())
         self.brain.decision = Decision('listen')
         await self.controller.accept('hello', speaker='S1', identifiers=('',))
@@ -243,3 +240,33 @@ class ControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.controller.flow.phase, 'closing')
         self.controller.complete_playback(final)
         self.assertEqual(self.controller.flow.phase, 'done')
+
+    async def test_introduction_idle_nudges_once_and_never_finishes_enrollment(self):
+        self.brain.decision = Decision('respond', speech='Anyone else? Tell me when everyone has shared.')
+        prompts = await self.controller.idle()
+        self.assertTrue(prompts, 'Introductions must be eligible for a generated nudge')
+        self.assertEqual(self.controller.render(prompts[0]), self.brain.decision.speech)
+        self.assertEqual(self.brain.calls[-1][3], 'idle')
+        self.assertEqual(self.controller.flow.question_key, 'f.001')
+        count = len(self.brain.calls)
+        self.assertEqual(await self.controller.idle(), [])
+        self.assertEqual(len(self.brain.calls), count)
+        self.brain.decision = Decision('finish_enrollment')
+        await self.controller.accept("William, that's all of us.", speaker='S1')
+        self.brain.decision = Decision('next')
+        self.assertEqual(await self.controller.idle(), [])
+        self.assertEqual(self.controller.flow.question_key, 'f.001')
+
+    async def test_direct_navigation_rearms_nudge_for_new_question(self):
+        self.controller.flow.phase = 'lesson'
+        self.brain.decision = Decision('respond', speech='Would anyone else like to share?')
+        await self.controller.idle()
+        self.controller.control('next')
+        count = len(self.brain.calls)
+        await self.controller.idle()
+        self.assertEqual(len(self.brain.calls), count + 1)
+
+    async def test_paused_introduction_does_not_call_model_for_nudge(self):
+        self.controller.control('pause')
+        self.assertEqual(await self.controller.idle(), [])
+        self.assertEqual(self.brain.calls, [])

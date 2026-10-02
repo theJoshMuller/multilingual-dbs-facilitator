@@ -186,7 +186,7 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
                     current_question_key="f.001", current_question=lesson().questions["f.001"],
                     roster=[], speaker=""), event="opening")
                 payload = json.loads(self.payload()["messages"][1]["content"])
-                self.assertEqual(payload.get("opening_guidance"), prompts["welcome"])
+                self.assertEqual(payload.get("opening_guidance"), prompts["group_welcome"])
                 self.assertEqual(payload["context"]["current_question_key"], "f.001")
                 for event, text in (("idle", ""), ("participant", "Could we slow down?")):
                     await self.brain.decide(text, context(), event=event)
@@ -209,7 +209,7 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(FacilitatorConfigurationError):
             Facilitator("fr", lesson())
         self.assertEqual(set(ACTIONS), {
-            "listen", "respond", "introduce", "confirm_name", "reject_name", "finish_enrollment",
+            "listen", "respond", "introduce", "clarify_name", "confirm_name", "reject_name", "finish_enrollment",
             "next", "previous", "repeat", "read_scripture", "pause", "resume", "stop", "grounding_challenge",
         })
 
@@ -385,6 +385,19 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
+
+    async def test_optional_name_clarification_and_final_self_intro_contract(self):
+        self.output("clarify_name", name="Ann", speech="Ann, did I hear that correctly?")
+        decision = await self.brain.decide("My name is Ann", context(phase="introductions"))
+        self.assertEqual(decision.action, "clarify_name")
+        self.output("finish_enrollment", name="Carla", speech="Let us continue.")
+        decision = await self.brain.decide("I'm Carla, I'm thankful for friends. That's everyone; next question.",
+                                         context(phase="introductions"))
+        self.assertEqual(decision.name, "Carla")
+        for invalid in ("S2", " Carla "):
+            self.output("finish_enrollment", name=invalid)
+            with self.assertRaises(FacilitatorError):
+                await self.brain.decide("Everyone is ready", context(phase="introductions"))
 
 
 if __name__ == "__main__":

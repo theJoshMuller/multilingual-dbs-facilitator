@@ -92,12 +92,10 @@ class WiringTests(unittest.IsolatedAsyncioTestCase):
         session = self.browser()
         session.durations['S1'] = 8
         session.recognizer.get_speaker_ids.return_value = [{'label': 'S1', 'speaker_identifiers': ['private-test-evidence']}]
-        self.brain.decisions.extend([
-            Decision('introduce', name='Anna', speech='Anna, did I hear your name correctly?'),
-            Decision('confirm_name', speech='Thanks, Anna. Who would like to go next?'),
-        ])
+        self.brain.decisions.append(Decision('introduce', name='Anna'))
         await session.process((Intent.DISCUSSION, '', '[Speaker S1] Anna here. I am thankful for my family.', 'voice'))
-        await session.process((Intent.DISCUSSION, '', "[Speaker S1] That's me.", 'voice'))
+        self.assertEqual(session.controller.flow.phase, 'introductions')
+        self.assertIsNone(session.controller.flow.pending)
         self.assertEqual([p.name for p in session.controller.flow.roster], ['Anna'])
         self.assertEqual(session.controller.flow.roster[0].identifiers, ('private-test-evidence',))
         self.assertNotIn('private-test-evidence', str(session.state()))
@@ -193,6 +191,119 @@ class WiringTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.brain.calls[0][3], 'opening')
             await agent.on_exit()
         self.assertTrue(self.brain.closed)
+
+    async def one_timer_cycle(self, coroutine, module):
+        calls = 0
+        async def sleep(_seconds):
+            nonlocal calls
+            calls += 1
+            if calls > 1:
+                raise asyncio.CancelledError()
+        with patch(module + '.asyncio.sleep', new=sleep), self.assertRaises(asyncio.CancelledError):
+            await coroutine
+
+    async def test_browser_intro_nudge_after_seven_seconds_once(self):
+        session = self.browser()
+        session.busy = False
+        session.started = session.last_input = 100
+        with patch('dbs_web.time.monotonic', return_value=100):
+            session.last_activity = 93.1
+            await self.one_timer_cycle(session.tick(), 'dbs_web')
+            self.assertTrue(session.queue.empty())
+            session.last_activity = 93
+            await self.one_timer_cycle(session.tick(), 'dbs_web')
+            self.assertEqual(session.queue.qsize(), 1, 'Nudge must be queued at seven seconds')
+            self.assertEqual(session.queue.get_nowait(), 'idle')
+            session.queue.task_done()
+            self.brain.decisions.append(Decision('respond', speech='Anyone else? Let me know when everyone has shared.'))
+            await session.process('idle')
+            self.assertEqual(self.brain.calls[-1][3], 'idle')
+            self.assertEqual(session.controller.flow.question_key, 'f.001')
+            session.last_activity = 90
+            await self.one_timer_cycle(session.tick(), 'dbs_web')
+            self.assertTrue(session.queue.empty())
+
+    async def test_browser_nudge_waits_for_silence_and_discards_stale_work(self):
+        for blocked in ('busy', 'human_speaking', 'paused', 'queued'):
+            with self.subTest(blocked=blocked):
+                session = self.browser()
+                session.busy = blocked == 'busy'
+                session.human_speaking = blocked == 'human_speaking'
+                session.controller.flow.paused = blocked == 'paused'
+                session.started = session.last_input = 100
+                session.last_activity = 90
+                if blocked == 'queued':
+                    session.queue.put_nowait('opening')
+                with patch('dbs_web.time.monotonic', return_value=100):
+                    await self.one_timer_cycle(session.tick(), 'dbs_web')
+                self.assertEqual(session.queue.qsize(), 1 if blocked == 'queued' else 0)
+        session = self.browser()
+        session.last_activity = 100
+        with patch('dbs_web.time.monotonic', return_value=100):
+            await session.process('idle')
+        self.assertEqual(self.brain.calls, [])
+
+    async def test_console_intro_nudge_uses_same_seven_second_boundary(self):
+        session = self.browser()
+        agent = DiscoveryAgent(session.controller, AsyncMock(), {'tts': 'elevenlabs', 'language': 'en'})
+        with patch('dbs_agent.time.monotonic', return_value=100), patch.object(agent, '_say', new=AsyncMock()):
+            agent.last_activity = 93.1
+            await self.one_timer_cycle(agent._idle(), 'dbs_agent')
+            self.assertTrue(agent.queue.empty())
+            agent.last_activity = 93
+            await self.one_timer_cycle(agent._idle(), 'dbs_agent')
+            self.assertEqual(agent.queue.qsize(), 1, 'Console nudge must be queued at seven seconds')
+            self.assertIsNone(agent.queue.get_nowait())
+            agent.queue.task_done()
+            self.brain.decisions.append(Decision('respond', speech='Anyone else?'))
+            await agent._process(None)
+        self.assertEqual(self.brain.calls[-1][3], 'idle')
+        self.assertEqual(session.controller.flow.question_key, 'f.001')
+
+    async def test_browser_last_person_registers_and_starts_next_question(self):
+        session = self.browser()
+        session.durations['S1'] = 8
+        session.recognizer.get_speaker_ids.return_value = [{'label': 'S1', 'speaker_identifiers': ['private-fixture']}]
+        self.brain.decisions.append(Decision('finish_enrollment', name='Josh'))
+        await session.process((Intent.DISCUSSION, '', '[Speaker S1] My name is Josh and I am thankful for today. That is everyone; next question.', 'voice'))
+        self.assertEqual([p.name for p in session.controller.flow.roster], ['Josh'])
+        self.assertEqual(session.controller.flow.question_key, 'f.002')
+        self.assertIsNone(session.controller.flow.pending)
+
+    async def test_final_introduction_playback_failure_restores_roster_and_question(self):
+        session = self.browser()
+        snapshot = session.controller.snapshot()
+        session.durations['S1'] = 8
+        session.recognizer.get_speaker_ids.return_value = [{'label': 'S1', 'speaker_identifiers': ['private-fixture']}]
+        self.brain.decisions.append(Decision('finish_enrollment', name='Josh'))
+        session.speak.side_effect = RuntimeError('offline playback failure')
+        await session.process((Intent.DISCUSSION, '', '[Speaker S1] My name is Josh, thankful for today; everyone has shared, next question.', 'voice'))
+        self.assertEqual(session.controller.snapshot(), snapshot)
+        self.assertTrue(session.closed.is_set())
+
+    async def test_rules_browser_retains_twenty_five_second_nudge(self):
+        with patch.dict(os.environ, {'DBS_FACILITATION_MODE': 'rules'}):
+            session = DemoSession(self.ws, 'en')
+        session.busy = False
+        session.controller.flow.phase = 'lesson'
+        session.started = session.last_input = 100
+        with patch('dbs_web.time.monotonic', return_value=100):
+            session.last_activity = 93
+            await self.one_timer_cycle(session.tick(), 'dbs_web')
+            self.assertTrue(session.queue.empty())
+            session.last_activity = 75
+            await self.one_timer_cycle(session.tick(), 'dbs_web')
+            self.assertEqual(session.queue.get_nowait(), 'idle')
+
+    async def test_console_nudge_timer_is_suppressed_while_paused(self):
+        session = self.browser()
+        session.controller.control('pause')
+        agent = DiscoveryAgent(session.controller, AsyncMock(), {'tts': 'elevenlabs', 'language': 'en'})
+        agent.last_activity = 90
+        with patch('dbs_agent.time.monotonic', return_value=100):
+            await self.one_timer_cycle(agent._idle(), 'dbs_agent')
+        self.assertTrue(agent.queue.empty(), 'Pause must suppress the console silence timer')
+        self.assertEqual(self.brain.calls, [])
 
 
 if __name__ == '__main__':

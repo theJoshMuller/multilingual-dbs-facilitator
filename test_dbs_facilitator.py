@@ -20,8 +20,15 @@ import httpx
 
 from dbs_curriculum import Lesson
 from dbs_facilitator import (
-    ACTIONS, DEFAULT_MODEL, INSTRUCTIONS, OPENROUTER_URL, SCHEMA,
-    Decision, Facilitator, FacilitatorConfigurationError, FacilitatorError,
+    ACTIONS,
+    DEFAULT_MODEL,
+    INSTRUCTIONS,
+    OPENROUTER_URL,
+    SCHEMA,
+    Decision,
+    Facilitator,
+    FacilitatorConfigurationError,
+    FacilitatorError,
     openrouter_api_key,
 )
 
@@ -267,7 +274,7 @@ class FacilitatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("vulnerable disclosures", INSTRUCTIONS)
 
     async def test_missing_or_invented_grounding_suppresses_all_speech(self):
-        base = dict(name="Ana", verse_id="GEN.1.1", quote="the story describes light", speech="Ana, where did you hear that in the story?")
+        base = {"name": "Ana", "verse_id": "GEN.1.1", "quote": "the story describes light", "speech": "Ana, where did you hear that in the story?"}
         for changes in ({"quote": "invented text"}, {"quote": ""}, {"quote": " "},
                         {"verse_id": "GEN.99.1"}, {"quote": "the story describes water"},
                         {"quote": "The story describes light"}, {"name": "Ben"},

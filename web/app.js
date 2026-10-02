@@ -13,13 +13,13 @@
     source: null, worklet: null, timer: null, connectTimer: null, started: 0,
     listen: false, wakeListening: false, muted: false, state: null, stage: 'offline', audio: null,
     output: null, nextAudioTime: 0, ignoreCancelled: false, protocol: null,
-    playback: new Set(), drops: 0, lastDropWarning: 0, underruns: 0,
+    playback: new Set(), drops: 0, lastDropWarning: 0, underruns: 0, stopping: false,
   };
 
   const text = (value, limit = 6000) => typeof value === 'string' ? value.slice(0, limit) : '';
   const number = (value) => typeof value === 'number' && Number.isFinite(value) ? value : null;
   const seconds = (value) => number(value) === null ? '—' : `${Math.max(0, value).toFixed(2)} s`;
-  const speakerLabel = (value) => /^S\d{1,3}$/.test(String(value)) ? String(value) : 'Unassigned';
+  const speakerLabel = (value) => /^(?:S\d{1,3}|[A-Z]|PENDING)$/.test(String(value)) ? String(value) : 'Unassigned';
   const time = (value) => {
     const s = Math.max(0, Math.floor(number(value) ?? 0));
     return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
@@ -66,6 +66,7 @@
     const connected = runtime.active && runtime.socket?.readyState === WebSocket.OPEN;
     $('start').disabled = runtime.active || !$('consent').checked;
     $('language').disabled = runtime.active;
+    $('mode').disabled = runtime.active;
     $('consent').disabled = runtime.active;
     $('stop').disabled = !runtime.active;
     $('mute').disabled = !runtime.active || !runtime.stream;
@@ -75,6 +76,7 @@
       const action = button.dataset.action;
       const urgent = ['pause', 'previous', 'next', 'repeat'].includes(action);
       button.disabled = !connected || (!urgent && (!state || state.busy === true))
+        || state?.mode === 'assemblyai-proof'
         || (!state && action !== 'pause')
         || (action === 'resume' && state?.paused !== true)
         || (action === 'pause' && state?.paused === true);
@@ -134,6 +136,7 @@
   function release(message = 'Stopped. Microphone released; start again for a fresh session.') {
     runtime.generation++;
     runtime.active = false;
+    runtime.stopping = false;
     clearInterval(runtime.timer); clearTimeout(runtime.connectTimer);
     runtime.timer = null; runtime.connectTimer = null;
     cancelPlayback();
@@ -170,14 +173,32 @@
   }
 
   function stop() {
-    if (!runtime.active) return;
+    if (!runtime.active || runtime.stopping) return;
     send({ type: 'control', action: 'stop' });
+    if (runtime.state?.mode === 'assemblyai-proof') {
+      runtime.stopping = true;
+      runtime.listen = runtime.wakeListening = false;
+      runtime.worklet.port.onmessage = null;
+      runtime.stream.getTracks().forEach((track) => { track.onended = null; track.stop(); });
+      runtime.stream = null;
+      runtime.context.onstatechange = null;
+      runtime.context.close().catch(() => {});
+      runtime.stage = 'stopping';
+      log('Microphone released. Waiting briefly for final speaker revisions and provider Termination.');
+      clearTimeout(runtime.connectTimer);
+      runtime.connectTimer = setTimeout(() => release('Stopped. Final provider acknowledgement unavailable.'), 6000);
+      renderControls();
+      return;
+    }
     log('Stopped by user. Microphone, playback, and transport released.');
     release();
   }
 
   async function start() {
     if (runtime.active || !$('consent').checked) return;
+    if ($('mode').value === 'assemblyai-proof') {
+      for (const id of ['events', 'transcript', 'decisions']) $(id).replaceChildren(make('p', 'empty', 'New proof session.'));
+    }
     $('error-banner').hidden = true;
     if (!window.isSecureContext) { showError('Microphone access requires HTTPS. Open the HTTPS Tailscale address, not a plain HTTP IP address.'); return; }
     if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext || !window.AudioWorkletNode) {
@@ -247,8 +268,8 @@
       }, 45000);
       socket.onopen = () => {
         if (generation !== runtime.generation) return;
-        send({ type: 'start', language: $('language').value, consent: true });
-        log(`Session requested in ${$('language').value === 'es' ? 'Spanish' : 'English'}. Consent recorded for this session only.`);
+        send({ type: 'start', mode: $('mode').value, language: $('language').value, consent: true });
+        log(`Session requested: ${$('mode').value === 'assemblyai-proof' ? 'one-mic EN/TR ASR proof' : $('language').value === 'es' ? 'Spanish study' : 'English study'}. Consent recorded for this session only.`);
         status('Connected. Starting Speechmatics and the facilitator…'); renderControls();
       };
       socket.onmessage = ({ data }) => {
@@ -383,6 +404,12 @@
 
   function renderState(state) {
     runtime.state = state; runtime.listen = state.listen === true;
+    if (state.mode === 'assemblyai-proof') {
+      $('pipe-stt').textContent = '02 · AssemblyAI';
+      $('pipe-model').textContent = '03 · ASR proof only';
+      $('model-label').textContent = 'Universal-3.6 Pro · human identity UNVERIFIED';
+      $('decision-provider').textContent = 'NO FACILITATION';
+    }
     $('phase').textContent = human(state.phase);
     const total = Array.isArray(state.steps) ? state.steps.length : 0;
     $('lesson-step').textContent = text(state.question_key, 80) || (total && number(state.index) !== null ? `${Math.max(0, state.index + 1)} / ${total}` : '—');
@@ -411,19 +438,26 @@
   function transcript(event) {
     const segments = Array.isArray(event.speakers) ? event.speakers.slice(0, 100) : [];
     const speech = text(event.text);
-    if (event.final !== true) { $('interim').textContent = speech ? `Interim · ${speech}` : 'Waiting for speech…'; return; }
+    const languageConfidence = number(event.language_confidence);
+    const asrFields = event.turn_order !== undefined ? `Speaker label: ${text(event.speaker_label, 30) || 'unassigned'} · Language code: ${text(event.language_code, 20) || 'unknown'} (${languageConfidence === null ? 'confidence unavailable' : `${Math.round(languageConfidence * 100)}%`}) · Name: ${text(event.verified_name, 60) || 'UNVERIFIED'}` : '';
+    if (event.final !== true) { $('interim').textContent = speech ? `Interim · ${asrFields} · ${speech}` : 'Waiting for speech…'; return; }
     $('interim').textContent = 'Waiting for the next utterance…';
     const row = make('article', 'feed-entry');
     const meta = make('div', 'entry-meta');
     const labels = [...new Set(segments.map((s) => speakerLabel(s.speaker)))];
     meta.append(make('span', '', time(event.at)), make('span', '', labels.join(', ') || 'Unassigned'), make('span', event.ignored ? 'ignored' : 'intent', event.ignored ? 'FINAL · IGNORED' : 'FINAL'));
     row.append(meta, make('p', 'entry-text', speech));
+    if (asrFields) row.append(make('p', 'entry-detail', `${asrFields}${event.revision ? ' · SPEAKER REVISION; earlier attribution revoked' : ''}`));
     for (const segment of segments) {
       const confidence = number(segment.confidence);
       row.append(make('p', 'entry-detail', `${speakerLabel(segment.speaker)} · ${confidence === null ? 'confidence unavailable' : `${Math.round(confidence * 100)}% confidence`}${number(segment.start) !== null ? ` · ${seconds(segment.start)}–${seconds(segment.end)}` : ''}${segments.length > 1 ? ` · ${text(segment.text)}` : ''}`));
     }
-    appendBounded($('transcript'), row);
-    log(`Final transcript${event.ignored ? ' (ignored)' : ''}: ${speech}`, '', event.at);
+    const order = Number.isSafeInteger(event.turn_order) ? event.turn_order : null;
+    const existing = order === null ? null : $('transcript').querySelector(`[data-turn-order="${order}"]`);
+    if (order !== null) row.dataset.turnOrder = String(order);
+    if (existing) existing.replaceWith(row);
+    else appendBounded($('transcript'), row);
+    if (!existing) log(`Final transcript${event.ignored ? ' (ignored)' : ''}: ${speech}`, '', event.at);
   }
 
   function decision(event) {
@@ -453,6 +487,8 @@
         break;
       case 'state': renderState(event); break;
       case 'transcript': transcript(event); break;
+      case 'provider_termination':
+        log(`AssemblyAI Termination acknowledged: ${seconds(event.audio_duration_seconds)} audio; ${seconds(event.session_duration_seconds)} connected.`, '', event.at); break;
       case 'decision': decision(event); break;
       case 'prompt':
         $('prompt-key').textContent = text(event.key, 100) || '—'; $('current-prompt').textContent = text(event.text);
@@ -478,6 +514,19 @@
   }
 
   function renderGuide() {
+    const proof = $('mode').value === 'assemblyai-proof';
+    $('proof-notice').hidden = !proof;
+    $('consent-description').textContent = proof
+      ? 'Everyone agrees that microphone speech goes to AssemblyAI for transcription and speaker labels. Human identity is UNVERIFIED. This app keeps speech in page/server memory and does not save audio or transcripts automatically. Normal provider retention applies. This proof has no translation or spoken facilitation.'
+      : 'Microphone speech goes to Speechmatics for session speaker recognition. Spoken output, including names, goes to ElevenLabs. This browser path uses rules; participant turns are not sent to a model API. Normal provider retention applies. Audio and transcripts are not saved automatically.';
+    if (proof) {
+      $('language-note').textContent = 'EN/TR language bias with code-switching · one shared mic · 180-second limit · no Scripture in this proof.';
+      $('quick-guide').replaceChildren();
+      for (const phrase of ['Person 1: introduce your name and speak a few English sentences.', 'Person 2: introduce your name and speak a few Turkish sentences.', 'Alternate at least two more turns each; use a switch within one sentence.', 'Test a short turn and overlap, then Stop. Labels may be revised.']) {
+        $('quick-guide').append(make('p', 'small', phrase));
+      }
+      return;
+    }
     const spanish = $('language').value === 'es';
     $('guide-locale').textContent = spanish ? 'ES' : 'EN';
     $('language-note').textContent = spanish ? 'Génesis 1:1–25 · NVI. A participant reads unless an authorized passage is configured.' : 'Genesis 1:1–25 · English NLT passage.';
@@ -493,6 +542,7 @@
 
   $('consent').addEventListener('change', renderControls);
   $('language').addEventListener('change', renderGuide);
+  $('mode').addEventListener('change', renderGuide);
   $('start').addEventListener('click', start);
   $('stop').addEventListener('click', stop);
   $('mute').addEventListener('click', () => { runtime.muted = !runtime.muted; log(runtime.muted ? 'Mic muted: only silence is sent; local meter remains live.' : 'Mic unmuted: server listen gate still applies.'); renderControls(); });

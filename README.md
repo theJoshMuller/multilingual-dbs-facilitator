@@ -11,6 +11,29 @@ The heart of the app is discovery: read Scripture, listen to each other, and
 put what you discover into practice. Canonical Waha questions shape the study;
 the group brings the conversation.
 
+## AssemblyAI ASR spike
+
+The browser now defaults to **One mic · EN/TR ASR proof**. This mode only
+transcribes: William does not speak, enroll names, translate or read Scripture.
+One Universal-3.6 Pro provider stream receives the existing 16 kHz mono PCM
+microphone feed through the server. Vendor speaker labels and language codes
+are shown separately; human names remain unverified.
+
+For this mode, use a secure local editor to add `ASSEMBLYAI_API_KEY` to the
+worktree's Git-ignored `.env`, then set owner-only permissions with `chmod 600 .env`.
+The key is never supplied to browser JavaScript. No Speechmatics/ElevenLabs key
+is needed for this proof. Start `dbs_web.py`, choose the proof mode, and stop
+within three minutes; connected time is billed by the provider. Arrange consent
+with everyone present before testing. Speech stays in session memory.
+
+The original single-language study remains selectable. Its setup below is the
+legacy Waha/Speechmatics path; it does not yet use official YouVersion text.
+Optional source-validation groundwork requires `WAHA_ROOT` and
+`YVP_SERVER_FILE=/absolute/path/to/youversion_platform/server.py`. Read that
+project's `agents.md` before API use; its key stays in that project's `.env`.
+See [the spike handoff](docs/assemblyai-spike-handoff.md) for real versus mocked
+evidence and the remaining identity, switching and echo checks.
+
 ## The app
 
 The browser app brings Waha's visual style and study flow to a shared voice

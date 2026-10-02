@@ -20,12 +20,13 @@
     <section class="panel setup" aria-labelledby="session-heading">
       <div class="section-heading"><h2 id="session-heading">Let’s gather</h2><span id="connection" class="pill">Offline</span></div>
       <div class="setup-layout">
-        <div><label class="field-label" for="language">Study language</label><select id="language"><option value="en">English · NLT</option><option value="es">Español · NVI</option></select><p id="language-note" class="muted small">Genesis 1:1–25 · English NLT passage.</p></div>
+        <div><label class="field-label" for="mode">Session mode</label><select id="mode"><option value="assemblyai-proof" selected>One mic · EN/TR ASR proof</option><option value="study">Original single-language study</option></select><label class="field-label" for="language">Study language</label><select id="language"><option value="en">English · NLT</option><option value="es">Español · NVI</option></select><p id="language-note" class="muted small">One microphone · English and Turkish.</p></div>
         <div class="consent-box">
           <label class="consent"><input id="consent" type="checkbox"><span>Everyone present agrees to this voice session.</span></label>
-          <p class="small muted">Microphone speech goes to <strong>Speechmatics</strong> for transcription and session-only speaker identification. Participant transcripts, names, and recent conversation context go to <strong>OpenRouter and its model provider</strong> for facilitation. Spoken output, including names, goes to <strong>ElevenLabs</strong>. Normal provider logging applies; this is not zero-retention. This app does not record audio to server disk. On-page transcript and debug history use memory only, with no browser storage or analytics.</p>
+          <p id="consent-description" class="small muted">Microphone speech goes to AssemblyAI for transcription and speaker labels. Human identity is UNVERIFIED. Speech stays in page/server memory; this app does not save audio or transcripts automatically. Normal provider retention applies. This proof has no translation or spoken facilitation.</p>
         </div>
       </div>
+      <p id="proof-notice" class="notice warning">ASR PROOF · HUMAN IDENTITY UNVERIFIED. Speaker labels may change. A turn’s language code does not identify a person or every phrase in a code-switched sentence. Three-minute limit; stop promptly after testing.</p>
       <p class="usage-note">Use headphones and speak one person at a time. On your phone, keep this page in the foreground and the screen awake.</p>
       <div class="session-actions"><button id="start" class="primary" disabled>Start together</button><button id="mute" aria-pressed="false" disabled>Mute mic</button><button id="stop" class="danger" disabled>Stop & release mic</button></div>
       <p id="status-message" class="status-message" role="status" aria-live="polite">Agree above, then start. The microphone is off.</p>

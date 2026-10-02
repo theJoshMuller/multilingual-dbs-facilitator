@@ -31,6 +31,7 @@ from dbs_agent import (
 from dbs_flow import Event, Intent
 from dbs_intents import rule_intent
 from dbs_prompts import EN, ES
+from dbs_proof import ProofSession
 from dbs_tts import synthesize
 
 ROOT = Path(__file__).resolve().parent
@@ -430,7 +431,8 @@ def create_app(*, origins=None):
     async def health(request):
         return web.json_response({'ok': True, 'service': 'discovering-god-debug', 'protocol': 1,
                                   'active_sessions': len(sessions), 'max_sessions': MAX_SESSIONS,
-                                  'transport': 'wss-pcm-livekit-stt', 'languages': ['en', 'es']})
+                                  'transport': 'wss-pcm-livekit-stt', 'languages': ['en', 'es'],
+                                  'proof_mode': 'assemblyai-proof', 'proof_languages': ['en', 'tr']})
 
     async def asset(request):
         name = request.match_info.get('name', 'index.html')
@@ -448,8 +450,8 @@ def create_app(*, origins=None):
         sockets.add(ws)
         session = None
         running = None
-        await ws.send_json({'type': 'hello', 'protocol': 1})
         try:
+            await ws.send_json({'type': 'hello', 'protocol': 1})
             async with asyncio.timeout(MAX_SESSION_SECONDS + 30):
                 while not ws.closed:
                     if session and session.closed.is_set():
@@ -471,13 +473,15 @@ def create_app(*, origins=None):
                         break
                     kind = data.get('type')
                     if kind == 'start':
-                        if session or data.get('consent') is not True or data.get('language') not in ('en', 'es'):
+                        mode = data.get('mode', 'study')
+                        if (session or data.get('consent') is not True or mode not in ('study', 'assemblyai-proof')
+                                or (mode == 'study' and data.get('language') not in ('en', 'es'))):
                             await ws.send_json({'type': 'error', 'code': 'invalid_start', 'message': 'Choose English or Spanish and accept the app permissions before starting.', 'fatal': True})
                             break
                         if len(sessions) >= MAX_SESSIONS:
                             await ws.send_json({'type': 'error', 'code': 'capacity', 'message': 'Three demo sessions are already active. End one and retry.', 'fatal': True})
                             break
-                        session = DemoSession(ws, data['language'])
+                        session = ProofSession(ws) if mode == 'assemblyai-proof' else DemoSession(ws, data['language'])
                         sessions.add(session)
                         running = asyncio.create_task(session.run())
                     elif session and kind == 'control':
@@ -498,15 +502,21 @@ def create_app(*, origins=None):
         finally:
             if session:
                 session.closed.set()
-            if running:
-                try:
-                    await asyncio.wait_for(asyncio.shield(running), 8)
-                except TimeoutError:
+            try:
+                if running:
+                    done, _ = await asyncio.wait((running,), timeout=8)
+                    if not done:
+                        running.cancel()
+                    # A disconnected peer can race the final message. Never let
+                    # that exception leak speech or bypass capacity cleanup.
+                    await asyncio.gather(running, return_exceptions=True)
+            finally:
+                sessions.discard(session)
+                sockets.discard(ws)
+                if running and not running.done():
                     running.cancel()
                     await asyncio.gather(running, return_exceptions=True)
-            sessions.discard(session)
-            sockets.discard(ws)
-            await ws.close()
+                await ws.close()
         return ws
 
     async def redirect(request):

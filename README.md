@@ -11,9 +11,35 @@ The heart of the app is discovery: read Scripture, listen to each other, and
 put what you discover into practice. Canonical Waha questions shape the study;
 the group brings the conversation.
 
+## English DBS test branch
+
+This follow-on branch defaults to **English DBS · NIV** on the same browser mic
+and private WebSocket bridge. It uses one AssemblyAI Universal-3.6 Pro stream,
+ElevenLabs speech, Josh’s requested opening and the remaining original English Waha questions, and official server-side
+YouVersion NIV version 111 (New International Version 2011, publisher Biblica).
+Source verification happens before the billed stream opens. Each of the 25
+Genesis 1:1–25 verses is individually validated; no Waha Bible cache or generated
+verse is used by this mode. English participant contributions are not translated.
+
+William’s conversational decisions come from the **active Codex session** through
+an authenticated loopback in-memory queue. This branch has no external LLM
+client. The opening plays automatically without a queue wait. Later contributions need that session to remain active; it is not an unattended
+service. Arrange participant consent before startup, outside the app. Use Start,
+share naturally, and navigate by voice or controls. Pause interrupts reading;
+Resume preserves remaining prompts. Voice wake interruption is not enabled yet.
+Human name recognition remains unverified; uncertain speech is not assigned a name.
+
+Keep `ASSEMBLYAI_API_KEY` only in the worktree’s ignored owner-only `.env`. Set
+`WAHA_ROOT` and `YVP_SERVER_FILE` to the existing curriculum/API integration. Its
+YVP key stays in its own project. Existing ElevenLabs credentials are reused in
+place via `ELEVENLABS_ENV_FILE`; no key is copied into JavaScript or publication.
+Start `.venv/bin/python -E dbs_web.py` from this worktree. The current local test
+configuration is <http://127.0.0.1:8095/dbs/>. See
+[English test evidence](docs/assemblyai-english-handoff.md) for limitations.
+
 ## AssemblyAI ASR spike
 
-The browser now defaults to **One mic · EN/TR ASR proof**. This mode only
+The separate ASR proof remains selectable as **One mic · EN/TR ASR proof**. This mode only
 transcribes: William does not speak, enroll names, translate or read Scripture.
 One Universal-3.6 Pro provider stream receives the existing 16 kHz mono PCM
 microphone feed through the server. Vendor speaker labels and language codes
@@ -49,7 +75,7 @@ session. English and Spanish are the supported study languages.
 | Browser experience | Microphone controls, roster, current question, transcript, and session diagnostics |
 | Text rehearsal | Practice the same study flow without a microphone or voice enrollment |
 
-The default DBS flow uses deterministic controls. Questions about the passage
+The legacy DBS flow uses deterministic controls. Questions about the passage
 are redirected to Scripture and the group; the facilitator does not generate
 Bible answers. The CLI provides additional language configurations, with the
 requirements described below.
@@ -108,8 +134,9 @@ Start the server:
 .venv/bin/python dbs_web.py
 ```
 
-Open [localhost:8094/dbs/](http://localhost:8094/dbs/), select English or Spanish,
-confirm that everyone agrees to the voice session, and start together.
+For the legacy mode, open [localhost:8094/dbs/](http://localhost:8094/dbs/) and
+select English or Spanish. Arrange everyone's consent before startup, outside
+the app, then start together.
 Use headphones or a tested echo-cancelling speakerphone, speak one person at a
 time, and keep the page in the foreground on a phone.
 

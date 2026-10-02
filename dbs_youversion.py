@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,7 +29,7 @@ class Edition:
 
 # These are selections, not assertions of access. Never silently substitute another ID.
 EDITIONS = {
-    "en": Edition(116, "en", "NLT", "NLT", "New Living Translation"),
+    "en": Edition(111, "en", "NIV11", "NIV", "New International Version 2011"),
     "tr": Edition(170, "tr", "TCL02", "TCL02", "Kutsal Kitap Yeni Çeviri"),
     "es": Edition(128, "es", "NVI-S", "NVI", "Nueva Versión Internacional 2025"),
 }
@@ -112,7 +113,7 @@ def validate_scripture(edition, metadata, organization, index, passage):
     }
 
 
-def fetch_selected(language):
+def fetch_selected(language, *, include_verses=False):
     edition = EDITIONS.get(language)
     if not edition:
         raise ContentUnavailable("Unsupported Bible selection")
@@ -144,4 +145,14 @@ def fetch_selected(language):
     organization = get(f"/organizations/{publisher_id}")
     index = get(f"/bibles/{edition.version_id}/index")
     passage = get(f"/bibles/{edition.version_id}/passages/{PASSAGE}?format=text")
-    return validate_scripture(edition, metadata, organization, index, passage)
+    result = validate_scripture(edition, metadata, organization, index, passage)
+    if include_verses:
+        def verse(number):
+            passage_id = f"GEN.1.{number}"
+            value = get(f"/bibles/{edition.version_id}/passages/{passage_id}?format=text")
+            if value.get("id") != passage_id or not isinstance(value.get("content"), str) or not value["content"].strip():
+                raise ContentUnavailable("Official individual verse response is invalid")
+            return {"verseId": passage_id, "text": value["content"]}
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            result["verses"] = list(pool.map(verse, range(1, 26)))
+    return result

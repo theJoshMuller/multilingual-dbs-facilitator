@@ -69,7 +69,7 @@ async def smoke(url):
                 data = json.loads(message)
                 if data["type"] == "start":
                     assert (
-                        data["mode"] == "assemblyai-proof" and data["consent"] is True
+                        data["mode"] == "assemblyai-proof"
                     )
                     send(
                         {
@@ -146,9 +146,9 @@ async def smoke(url):
         await page.route_web_socket("**/ws", bridge)
         try:
             await page.goto(url, wait_until="networkidle")
-            assert await page.locator("#start").is_disabled()
+            assert await page.locator("#start").is_enabled()
             assert await page.evaluate("window.__proofTracks.length") == 0
-            await page.locator("#consent").check()
+            await page.locator("#mode").select_option("assemblyai-proof")
             await page.locator("#start").click()
             await expect(page.locator("#connection")).to_have_text("listening")
             await expect(page.locator("#transcript article")).to_have_count(2)

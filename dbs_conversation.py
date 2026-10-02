@@ -9,49 +9,70 @@ from dbs_flow import DBSFlow, Participant, Prompt, valid_name
 
 
 class ConversationFlow(DBSFlow):
-    def __init__(self, lesson, language='en', max_people=7):
-        super().__init__(lesson.steps, max_people=max_people, manual_scripture=not lesson.verses)
+    def __init__(self, lesson, language='en', max_people=7, *, text_mode=False):
+        super().__init__(lesson.steps, text_mode=text_mode, max_people=max_people, manual_scripture=not lesson.scripture.strip())
         self.lesson = lesson
         self.language = language
         self.index = 0  # The custom opening covers f.001 / thankfulness.
         self.questions = [i for i, key in enumerate(self.steps) if key not in ('f.008', 'scripture')]
 
     def words(self, english, spanish):
-        return Prompt('assistant', {'text': spanish if self.language == 'es' else english})
+        return Prompt('assistant', {'text': spanish if self.language == 'es' else english, 'origin': 'deterministic'})
 
     @staticmethod
     def generated(speech):
-        return [Prompt('assistant', {'text': speech})] if speech else []
+        return [Prompt('assistant', {'text': speech, 'origin': 'generated'})] if speech else []
 
     @property
     def question_key(self):
         return self.steps[self.index]
 
-    def attach_identifiers(self, speaker, identifiers):
-        if self.pending and self.pending.speaker == speaker and identifiers:
+    def start(self):
+        raise RuntimeError('Use ConversationController.start for lifecycle facilitation')
+
+    def idle(self):
+        raise RuntimeError('Use ConversationController.idle for lifecycle facilitation')
+
+    def attach_identifiers(self, speaker, identifiers, *, solo=True):
+        identifiers = tuple(v for v in identifiers if isinstance(v, str) and v.strip())
+        if solo and self.pending and self.pending.speaker == speaker and identifiers:
             self.pending = replace(self.pending, identifiers=identifiers)
 
     def navigate(self, direction):
         before = self.index
         options = [i for i in self.questions if (i > before if direction > 0 else i < before)]
         target = (min(options) if direction > 0 else max(options)) if options else before
+        crossing = direction > 0 and before < self.steps.index('scripture') < target
+        if crossing and self.manual_scripture:
+            target = self.steps.index('scripture')
         self.index = target
         self.phase = 'lesson'
         self.paused = False
         self.contributed.clear()
         # Crossing from fellowship into retelling includes the original story
         # introduction and exact passage; Previous itself does not replay a story.
-        if direction > 0 and before < self.steps.index('scripture') < target:
-            return [Prompt('f.008'), Prompt('scripture'), Prompt(self.steps[target])]
+        if target == len(self.steps) - 1:
+            self.phase = 'closing'
+        if crossing:
+            prompts = [Prompt('f.008')] if 'f.008' in self.steps else []
+            prompts.append(Prompt('scripture'))
+            if not self.manual_scripture:
+                prompts.append(Prompt(self.steps[target]))
+            return prompts
         return [Prompt(self.steps[target])]
 
     def apply(self, decision, *, speaker='', identifiers=(), solo=True):
+        identifiers = tuple(v for v in identifiers if isinstance(v, str) and v.strip())
         action, name = decision.action, decision.name
+        if self.phase == 'done' and action != 'stop':
+            return []
         speech = self.generated(decision.speech)
         if action == 'stop':
             self.phase = 'done'
             self.roster.clear()
             self.pending = None
+            self.contributed.clear()
+            self.paused = False
             return speech
         if action == 'pause':
             self.paused = True
@@ -65,7 +86,9 @@ class ConversationFlow(DBSFlow):
                 return speech
             self.paused = False
         if action == 'introduce':
-            if not solo or not speaker or not valid_name(name):
+            if solo and self.pending and self.pending.speaker == speaker and not identifiers:
+                identifiers = self.pending.identifiers
+            if not solo or not speaker or speaker == 'UU' or not valid_name(name):
                 return [self.words('Could you tell me your name, one person at a time?', '¿Me dices tu nombre, una persona a la vez?')]
             existing = next((p for p in self.roster if p.speaker == speaker), None)
             if existing:
@@ -74,10 +97,10 @@ class ConversationFlow(DBSFlow):
                 return [self.words('I may have mixed up the voices. Could you clarify who is speaking?', 'Puede que haya confundido las voces. ¿Quién está hablando?')]
             if len(self.roster) >= self.max_people or any(p.name.casefold() == name.casefold() for p in self.roster):
                 return [self.words('Could you use a distinct name so I can keep track of everyone?', '¿Puedes usar un nombre distinto para reconocer a cada persona?')]
+            if not self.text_mode and not identifiers:
+                return [self.words(f'Thanks, {name}. Tell us a little more about what you are thankful for while I get familiar with your voice.', f'Gracias, {name}. Cuéntanos un poco más sobre lo que agradeces mientras reconozco tu voz.')]
             self.pending = Participant(name, speaker, identifiers)
             self.phase = 'confirm_name'
-            if not identifiers:
-                return [self.words(f'Thanks, {name}. Tell us a little more about what you are thankful for while I get familiar with your voice.', f'Gracias, {name}. Cuéntanos un poco más sobre lo que agradeces mientras reconozco tu voz.')]
             return speech or [self.words(f'{name}—did I catch your name correctly?', f'{name}, ¿entendí bien tu nombre?')]
         if action in ('confirm_name', 'reject_name'):
             if not self.pending:
@@ -88,13 +111,15 @@ class ConversationFlow(DBSFlow):
                 self.pending = None
                 self.phase = 'introductions'
                 return speech
-            if not self.pending.identifiers:
+            if not self.text_mode and not self.pending.identifiers:
                 return [self.words('Tell us a little more so I can recognize your voice.', 'Cuéntanos un poco más para poder reconocer tu voz.')]
             self.roster.append(self.pending)
             self.pending = None
             self.phase = 'introductions'
             return speech
         if action == 'finish_enrollment':
+            if not self.roster or self.pending:
+                return [self.words('Let us finish the introductions first.', 'Terminemos primero las presentaciones.')]
             self.pending = None
             if self.phase == 'introductions' or self.phase == 'confirm_name':
                 self.index = 0

@@ -142,20 +142,19 @@ class HttpTests(unittest.IsolatedAsyncioTestCase):
                 await self.client.ws_connect('/ws', headers=headers)
             self.assertEqual(error.exception.status, 403)
 
-    async def test_consent_is_required_before_any_provider_start(self):
+    async def test_invalid_language_cannot_start_provider(self):
         with patch('dbs_web.DemoSession') as session:
             async with self.client.ws_connect('/ws', headers={'Origin': self.origin}) as ws:
                 self.assertEqual((await ws.receive_json())['type'], 'hello')
-                await ws.send_json({'type': 'start', 'language': 'en', 'consent': False})
+                await ws.send_json({'type': 'start', 'language': 'invented'})
                 event = await ws.receive_json()
                 self.assertEqual(event['code'], 'invalid_start')
                 self.assertTrue(event['fatal'])
                 session.assert_not_called()
 
-    async def test_proof_consent_is_required_and_unknown_mode_cannot_start(self):
+    async def test_unknown_mode_cannot_start(self):
         with patch('dbs_web.ProofSession') as proof:
-            for data in ({'type':'start','mode':'assemblyai-proof','consent':False},
-                         {'type':'start','mode':'invented','consent':True}):
+            for data in ({'type':'start','mode':'invented'},):
                 ws = await self.client.ws_connect('/ws', headers={'Origin':self.origin})
                 await ws.receive_json()
                 await ws.send_json(data)

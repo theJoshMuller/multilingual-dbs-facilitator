@@ -64,10 +64,9 @@
   function renderControls() {
     const state = runtime.state;
     const connected = runtime.active && runtime.socket?.readyState === WebSocket.OPEN;
-    $('start').disabled = runtime.active || !$('consent').checked;
+    $('start').disabled = runtime.active;
     $('language').disabled = runtime.active;
     $('mode').disabled = runtime.active;
-    $('consent').disabled = runtime.active;
     $('stop').disabled = !runtime.active;
     $('mute').disabled = !runtime.active || !runtime.stream;
     $('mute').textContent = runtime.muted ? 'Unmute mic' : 'Mute mic';
@@ -77,6 +76,9 @@
       const urgent = ['pause', 'previous', 'next', 'repeat'].includes(action);
       button.disabled = !connected || (!urgent && (!state || state.busy === true))
         || state?.mode === 'assemblyai-proof'
+        || ($('mode').value === 'assemblyai-english' && state?.provider_ready !== true)
+        || (state?.opening_pending === true && !['pause', 'resume'].includes(action))
+        || (state?.source_ready === false && !['pause', 'resume'].includes(action))
         || (!state && action !== 'pause')
         || (action === 'resume' && state?.paused !== true)
         || (action === 'pause' && state?.paused === true);
@@ -175,7 +177,7 @@
   function stop() {
     if (!runtime.active || runtime.stopping) return;
     send({ type: 'control', action: 'stop' });
-    if (runtime.state?.mode === 'assemblyai-proof') {
+    if (runtime.state?.mode?.startsWith('assemblyai-')) {
       runtime.stopping = true;
       runtime.listen = runtime.wakeListening = false;
       runtime.worklet.port.onmessage = null;
@@ -195,7 +197,7 @@
   }
 
   async function start() {
-    if (runtime.active || !$('consent').checked) return;
+    if (runtime.active) return;
     if ($('mode').value === 'assemblyai-proof') {
       for (const id of ['events', 'transcript', 'decisions']) $(id).replaceChildren(make('p', 'empty', 'New proof session.'));
     }
@@ -268,8 +270,8 @@
       }, 45000);
       socket.onopen = () => {
         if (generation !== runtime.generation) return;
-        send({ type: 'start', mode: $('mode').value, language: $('language').value, consent: true });
-        log(`Session requested: ${$('mode').value === 'assemblyai-proof' ? 'one-mic EN/TR ASR proof' : $('language').value === 'es' ? 'Spanish study' : 'English study'}. Consent recorded for this session only.`);
+        send({ type: 'start', mode: $('mode').value, language: $('language').value });
+        log(`Session requested: ${$('mode').value === 'assemblyai-proof' ? 'one-mic EN/TR ASR proof' : $('language').value === 'es' ? 'Spanish study' : 'English study'}.`);
         status('Connected. Starting Speechmatics and the facilitator…'); renderControls();
       };
       socket.onmessage = ({ data }) => {
@@ -404,6 +406,12 @@
 
   function renderState(state) {
     runtime.state = state; runtime.listen = state.listen === true;
+    if (state.mode === 'assemblyai-english') {
+      $('pipe-stt').textContent = '02 · AssemblyAI';
+      $('pipe-model').textContent = '03 · Codex session';
+      $('model-label').textContent = 'Active Codex session · human name recognition unverified';
+      $('decision-provider').textContent = 'CODEX SESSION';
+    }
     if (state.mode === 'assemblyai-proof') {
       $('pipe-stt').textContent = '02 · AssemblyAI';
       $('pipe-model').textContent = '03 · ASR proof only';
@@ -431,7 +439,7 @@
     }
     if (!roster.length) $('roster').append(make('p', 'empty', 'Introduce yourselves one at a time. Say your name and what you’re thankful for.'));
     $('pending-name').hidden = !state.pending;
-    if (state.pending) $('pending-name').textContent = `Confirming ${text(state.pending.name, 120) || 'a name'} (${speakerLabel(state.pending.speaker)}). The same person must say yes or no aloud. Buttons cannot confirm a voice.`;
+    if (state.pending) $('pending-name').textContent = `Confirming ${text(state.pending.name, 120) || 'a name'} (${speakerLabel(state.pending.speaker)}). The same person can confirm or correct their name naturally. Human voice recognition remains unverified.`;
     renderControls();
   }
 
@@ -500,10 +508,11 @@
       case 'metrics':
         $('stat-input').textContent = `${seconds(event.input_seconds)} · ${number(event.received_bytes) === null ? '—' : `${(event.received_bytes / 1024).toFixed(0)} KB`}`;
         $('stat-queue').textContent = String(number(event.queue_depth) ?? '—'); break;
-      case 'audio':
-        if (runtime.audio || runtime.playback.size) { showError('Unexpected overlapping audio. Session released.'); release('Audio protocol error.'); break; }
-        if (typeof event.id !== 'string' || !event.id) { showError('Missing audio acknowledgement ID. Session released.'); release('Audio protocol error.'); break; }
-        runtime.audio = event; break;
+      case 'scripture_source': log(`Scripture: ${text(event.edition_title, 120)} · ${text(event.publisher, 120)} · ${text(event.reference, 100)} · ${text(event.copyright, 2500)}`, '', event.at); break;
+      case 'audio': beginOutput(event, true); break;
+      case 'audio_begin': beginOutput(event); break;
+      case 'audio_chunk': describeChunk(event); break;
+      case 'audio_end': endOutput(event); break;
       case 'cancel_audio': cancelPlayback(); log('Playback cancelled; no completion acknowledgement sent.', '', event.at); break;
       case 'error':
         showError(`${text(event.code, 80) || 'Server error'}: ${text(event.message, 1200)}`);
@@ -516,8 +525,19 @@
   function renderGuide() {
     const proof = $('mode').value === 'assemblyai-proof';
     $('proof-notice').hidden = !proof;
-    $('consent-description').textContent = proof
-      ? 'Everyone agrees that microphone speech goes to AssemblyAI for transcription and speaker labels. Human identity is UNVERIFIED. This app keeps speech in page/server memory and does not save audio or transcripts automatically. Normal provider retention applies. This proof has no translation or spoken facilitation.'
+    const english = $('mode').value === 'assemblyai-english';
+    $('language').querySelector('[value=en]').textContent = english ? 'English · NIV' : 'English · NLT';
+    $('language').disabled = runtime.active || english;
+    if (english) $('language').value = 'en';
+    if (english) {
+      $('provider-description').textContent = 'Speech goes to AssemblyAI; spoken prompts go to ElevenLabs. William uses this active Codex session for facilitation. Scripture comes from the official YouVersion Platform API. Speech stays in session memory. Normal provider retention applies.';
+      $('language-note').textContent = 'English only · NIV (YouVersion version 111, Biblica) · one room microphone.';
+      $('quick-guide').replaceChildren();
+      for (const phrase of ['Introduce yourself and share what you are thankful for.', 'Ask naturally to continue, go back, repeat, pause or read the passage.', 'Use Pause to interrupt reading; Resume continues from the saved place.']) $('quick-guide').append(make('p', 'small', phrase));
+      return;
+    }
+    $('provider-description').textContent = proof
+      ? 'Microphone speech goes to AssemblyAI for transcription and speaker labels. Human identity is UNVERIFIED. This app keeps speech in page/server memory and does not save audio or transcripts automatically. Normal provider retention applies. This proof has no translation or spoken facilitation.'
       : 'Microphone speech goes to Speechmatics for session speaker recognition. Spoken output, including names, goes to ElevenLabs. This browser path uses rules; participant turns are not sent to a model API. Normal provider retention applies. Audio and transcripts are not saved automatically.';
     if (proof) {
       $('language-note').textContent = 'EN/TR language bias with code-switching · one shared mic · 180-second limit · no Scripture in this proof.';
@@ -540,7 +560,6 @@
     $('quick-guide').append(make('p', 'small muted guide-note', spanish ? 'Hablen de uno en uno, unos 20 segundos al presentarse. Se necesitan al menos 5 segundos de voz reconocida. El silencio no avanza la lección.' : 'Speak one at a time. Aim for about 20 seconds when introducing yourself; at least 5 seconds of recognized speech are needed. Silence never advances the lesson.'));
   }
 
-  $('consent').addEventListener('change', renderControls);
   $('language').addEventListener('change', renderGuide);
   $('mode').addEventListener('change', renderGuide);
   $('start').addEventListener('click', start);

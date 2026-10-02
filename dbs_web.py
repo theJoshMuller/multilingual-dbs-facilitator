@@ -75,11 +75,11 @@ class RulesParser:
 
 
 class DemoSession:
-    def __init__(self, ws, language):
+    def __init__(self, ws, language, *, controller=None):
         self.ws = ws
         self.language = language
         self.config = {**settings(), 'language': language, 'stt_language': language}
-        self.controller = DBSController(self.config, configured_lesson(self.config), RulesParser(), EN if language == 'en' else ES)
+        self.controller = controller or DBSController(self.config, configured_lesson(self.config), RulesParser(), EN if language == 'en' else ES)
         self.recognizer = None
         self.stream = None
         self.queue = asyncio.Queue(maxsize=12)
@@ -257,7 +257,8 @@ class DemoSession:
             text = self.controller.render(prompt)
             self.current_prompt, self.current_key = text, prompt.key
             await self.report_state()
-            await self.emit('prompt', key=prompt.key, text=text)
+            await self.emit('prompt', key=prompt.key, text=text,
+                            origin=self.controller.prompt_origin(prompt) if hasattr(self.controller, 'prompt_origin') else 'canonical')
             await self.emit('status', stage='synthesizing', message='ElevenLabs Flash is preparing the next prompt.')
             metrics = {}
             frames = await synthesize(text, self.language, metrics=metrics)
@@ -404,10 +405,12 @@ class DemoSession:
                 await self.ws.close()
 
 
-def create_app(*, origins=None):
+def create_app(*, origins=None, harness=None, prepare_english=False):
     configured_origins = origins or {o.strip() for o in os.getenv('DBS_WEB_ORIGINS', 'http://127.0.0.1:8094,http://localhost:8094').split(',')}
     sessions = set()
     sockets = set()
+    prepared_english = None
+    prepared_at = 0.0
 
     @web.middleware
     async def security(request, handler):
@@ -428,11 +431,16 @@ def create_app(*, origins=None):
 
     app = web.Application(middlewares=[security], client_max_size=65536)
 
+    if harness:
+        harness.mount(app)
+
     async def health(request):
         return web.json_response({'ok': True, 'service': 'discovering-god-debug', 'protocol': 1,
                                   'active_sessions': len(sessions), 'max_sessions': MAX_SESSIONS,
                                   'transport': 'wss-pcm-livekit-stt', 'languages': ['en', 'es'],
-                                  'proof_mode': 'assemblyai-proof', 'proof_languages': ['en', 'tr']})
+                                  'proof_mode': 'assemblyai-proof', 'proof_languages': ['en', 'tr'],
+                                  'english_mode': 'assemblyai-english' if harness else None,
+                                  'isolated_worktree': ROOT.parent.name == '.worktrees'})
 
     async def asset(request):
         name = request.match_info.get('name', 'index.html')
@@ -474,14 +482,20 @@ def create_app(*, origins=None):
                     kind = data.get('type')
                     if kind == 'start':
                         mode = data.get('mode', 'study')
-                        if (session or data.get('consent') is not True or mode not in ('study', 'assemblyai-proof')
+                        if (session or mode not in ('study', 'assemblyai-proof', 'assemblyai-english')
                                 or (mode == 'study' and data.get('language') not in ('en', 'es'))):
-                            await ws.send_json({'type': 'error', 'code': 'invalid_start', 'message': 'Choose English or Spanish and accept the app permissions before starting.', 'fatal': True})
+                            await ws.send_json({'type': 'error', 'code': 'invalid_start', 'message': 'Choose a supported mode and study language.', 'fatal': True})
                             break
                         if len(sessions) >= MAX_SESSIONS:
                             await ws.send_json({'type': 'error', 'code': 'capacity', 'message': 'Three demo sessions are already active. End one and retry.', 'fatal': True})
                             break
-                        session = ProofSession(ws) if mode == 'assemblyai-proof' else DemoSession(ws, data['language'])
+                        if mode == 'assemblyai-english':
+                            if harness is None or data.get('language') != 'en':
+                                raise ValueError('English harness is unavailable')
+                            from dbs_english import EnglishSession
+                            session = EnglishSession(ws, harness, prepared=prepared_english if time.monotonic()-prepared_at < 300 else None)
+                        else:
+                            session = ProofSession(ws) if mode == 'assemblyai-proof' else DemoSession(ws, data['language'])
                         sessions.add(session)
                         running = asyncio.create_task(session.run())
                     elif session and kind == 'control':
@@ -534,6 +548,14 @@ def create_app(*, origins=None):
             session.closed.set()
         await asyncio.gather(*(ws.close(code=1001, message=b'Server shutdown') for ws in list(sockets)), return_exceptions=True)
 
+    async def prepare(app):
+        nonlocal prepared_english, prepared_at
+        from dbs_english import build_english_lesson
+        prepared_english = await asyncio.wait_for(asyncio.to_thread(build_english_lesson), 60)
+        prepared_at = time.monotonic()
+
+    if prepare_english and harness:
+        app.on_startup.append(prepare)
     app.on_shutdown.append(shutdown)
     return app
 
@@ -541,4 +563,5 @@ def create_app(*, origins=None):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.WARNING)
     # No access logs: URLs and participant activity do not belong in the journal.
-    web.run_app(create_app(), host='127.0.0.1', port=int(os.getenv('DBS_WEB_PORT', '8094')), access_log=None)
+    from dbs_harness import HarnessBroker
+    web.run_app(create_app(harness=HarnessBroker.local(), prepare_english=True), host='127.0.0.1', port=int(os.getenv('DBS_WEB_PORT', '8094')), access_log=None)
